@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+:root {
+  --bg-start: #ecf4ff; /* very light blue */
+  --bg-end: #2d6df6;  /* richer blue */
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade { animation: fadeInUp 420ms ease both; }
+
+/**** Optional subtle focus ring for a11y ****/
+.focus-ring:focus-visible { outline: none; box-shadow: 0 0 0 6px rgba(45,109,246,0.28); }
+
+:root { --bg-start: #ecf4ff; --bg-end: #2d6df6; }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; transform: translateY(0);} }
+.animate-fade { animation: fadeInUp 420ms ease both; }
+.focus-ring:focus-visible { outline: none; box-shadow: 0 0 0 6px rgba(45,109,246,0.28); }
