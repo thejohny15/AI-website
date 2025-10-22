@@ -80,29 +80,34 @@ function PortfolioCard({
       href={href}
       className="relative block rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm transition hover:shadow-md"
     >
-      {/* Delete button (stops link navigation) */}
-      <button
-        className="absolute right-3 top-3 rounded-full border border-rose-300 bg-rose-50 px-3 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onDelete(p.id);
-        }}
-        aria-label={`Delete ${p.name}`}
-        title="Delete portfolio"
-      >
-        Delete
-      </button>
-
-      <div className="flex items-start justify-between gap-3 pr-16">
-        <h3 className="truncate text-base font-semibold text-zinc-900">{p.name}</h3>
-        {hasProposal ? <Chip tone="ok">Proposal ready</Chip> : <Chip tone="warn">Incomplete</Chip>}
+      <div className="mb-3 flex items-start justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-zinc-900">{p.name}</h3>
+          <p className="mt-1 text-sm text-zinc-600">
+            {p.riskTolerance} • {p.timeHorizon} • {p.currency}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Chip tone={hasProposal ? "ok" : "warn"}>
+            {hasProposal ? "Proposal ready" : "Incomplete"}
+          </Chip>
+          {/* Delete button (stops link navigation) */}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDelete(String(p.id));
+            }}
+            className="rounded-lg bg-rose-50 p-2 text-rose-600 transition hover:bg-rose-100"
+            aria-label="Delete portfolio"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+          </button>
+        </div>
       </div>
-
-      <div className="mt-2 text-xs text-zinc-500">Created: {new Date(p.createdAt).toLocaleString()}</div>
-      <div className="mt-3 text-sm text-zinc-700">
-        {hasProposal ? `${p.proposalHoldings?.length ?? 0} holdings` : "Click to continue"}
-      </div>
+      <p className="text-xs text-zinc-500">Created {new Date(p.createdAt ?? Date.now()).toLocaleString()}</p>
     </Link>
   );
 }

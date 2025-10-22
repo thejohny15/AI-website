@@ -1,15 +1,16 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
-import { useEffect, useMemo, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
+import { useEffect, useState, useMemo } from "react";
 import {
   getPortfolio,
   updatePortfolio,            // ← use this to persist currentHoldings
   type Portfolio,
   type Holding,
 } from "@/lib/portfolioStore";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 /**
  * Small table cell helpers to keep markup tidy.
@@ -19,37 +20,45 @@ function Th({
   className = "",
 }: { children: React.ReactNode; className?: string }) {
   return (
-    <th className={`py-2 pl-3 pr-2 text-xs font-semibold uppercase tracking-wide ${className}`}>
+    <th className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-700 ${className}`}>
       {children}
     </th>
   );
 }
+
 function Td({
   children,
   className = "",
 }: { children?: React.ReactNode; className?: string }) {
-  return <td className={`py-2 pl-3 pr-2 align-top ${className}`}>{children}</td>;
+  return (
+    <td className={`px-4 py-3 text-sm text-gray-900 ${className}`}>
+      {children}
+    </td>
+  );
 }
 
 /** Local type for a user-owned position (persisted in Portfolio.currentHoldings). */
-type UserPosition = { symbol: string; shares: number; buyPrice: number; note?: string };
+type UserPosition = { symbol: string; shares: number; buyPrice: number; buyDate: string; note?: string };
 
 export default function PortfolioDetail() {
+  const params = useParams();
+  const router = useRouter();
   // Auth / routing
   const { user, isLoaded } = useUser();
   const userId = user?.id ?? "";
-  const { id } = useParams<{ id: string }>();
-  const pid = typeof id === "string" ? id : Array.isArray(id) ? id[0] : undefined;
+  const pid = typeof params.id === "string" ? params.id : "";
 
   // State
   const [p, setP] = useState<Portfolio & { currentHoldings?: UserPosition[] }>();
   const [quotes, setQuotes] = useState<Record<string, any>>({});
   const [quotesLoading, setQuotesLoading] = useState(false);
+  const [historicalPrices, setHistoricalPrices] = useState<Record<string, Array<{date: string, price: number}>>>({});
 
   // Form state (must be before any early returns)
   const [sym, setSym] = useState("");
   const [buy, setBuy] = useState("");
   const [shares, setShares] = useState("");
+  const [buyDate, setBuyDate] = useState("");
 
   // Load portfolio
   useEffect(() => {
@@ -57,14 +66,14 @@ export default function PortfolioDetail() {
     setP(getPortfolio(userId, pid) as any);
   }, [isLoaded, userId, pid]);
 
-  // Fetch quotes for proposal + current holdings
+  // Fetch quotes for proposal + current holdings with auto-refresh
   useEffect(() => {
     const propSyms = (p?.proposalHoldings ?? []).map((h) => String(h.symbol).trim());
     const userSyms = (p?.currentHoldings ?? []).map((h) => String(h.symbol).trim());
     const all = Array.from(new Set([...propSyms, ...userSyms])).filter(Boolean);
     if (all.length === 0) return;
 
-    (async () => {
+    const fetchQuotes = async () => {
       try {
         setQuotesLoading(true);
         const res = await fetch("/api/quotes", {
@@ -77,8 +86,19 @@ export default function PortfolioDetail() {
       } finally {
         setQuotesLoading(false);
       }
-    })();
+    };
+
+    // Initial fetch
+    fetchQuotes();
+
+    // Set up auto-refresh every 60 seconds
+    const interval = setInterval(fetchQuotes, 60000);
+
+    // Cleanup interval on unmount or dependency change
+    return () => clearInterval(interval);
   }, [p?.proposalHoldings, p?.currentHoldings]);
+
+
 
   // Proposal stats
   const proposalMove = useMemo(() => {
@@ -105,6 +125,39 @@ export default function PortfolioDetail() {
   // Current holdings helpers
   const positions: UserPosition[] = p?.currentHoldings ?? [];
 
+  // Fetch historical prices for chart data
+  useEffect(() => {
+    if (!positions.length) return;
+    
+    const symbols = positions.map(pos => pos.symbol);
+    const earliestDate = positions.reduce((earliest, pos) => {
+      const posDate = new Date(pos.buyDate || new Date());
+      return posDate < earliest ? posDate : earliest;
+    }, new Date());
+    
+    const startDate = earliestDate.toISOString().slice(0, 10);
+    
+    // Add SPY for S&P 500 benchmark comparison
+    const allSymbols = [...symbols, 'SPY'];
+    
+    (async () => {
+      try {
+        const res = await fetch("/api/historical-quotes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            symbols: allSymbols,
+            startDate: startDate
+          }),
+        });
+        const data = await res.json();
+        setHistoricalPrices(data?.historicalPrices || {});
+      } catch (e) {
+        console.log("Error fetching historical prices:", e);
+      }
+    })();
+  }, [positions]);
+
   function saveCurrentHoldings(next: UserPosition[]) {
     if (!userId || !p) return;
     updatePortfolio(userId, p.id, { currentHoldings: next } as any);
@@ -115,10 +168,11 @@ export default function PortfolioDetail() {
     const s = sym.trim().toUpperCase();
     const b = Number(buy);
     const q = Number(shares);
+    const d = buyDate || new Date().toISOString().slice(0, 10); // Default to today if empty
     if (!s || !Number.isFinite(b) || !Number.isFinite(q) || b <= 0 || q <= 0) return;
-    const next = [...positions.filter((x) => x.symbol !== s), { symbol: s, buyPrice: b, shares: q }];
+    const next = [...positions.filter((x) => x.symbol !== s), { symbol: s, buyPrice: b, shares: q, buyDate: d }];
     saveCurrentHoldings(next);
-    setSym(""); setBuy(""); setShares("");
+    setSym(""); setBuy(""); setShares(""); setBuyDate("");
   }
 
   function removePosition(s: string) {
@@ -127,22 +181,143 @@ export default function PortfolioDetail() {
 
   // Current totals (must be before early returns)
   const currentTotals = useMemo(() => {
-    let totalCost = 0;
     let totalValue = 0;
     let pricedCount = 0;
     for (const pos of positions) {
-      const cost = (pos.buyPrice ?? 0) * (pos.shares ?? 0);
-      totalCost += cost;
       const price = quotes[pos.symbol]?.price;
       if (typeof price === "number") {
         totalValue += price * (pos.shares ?? 0);
         pricedCount++;
       }
     }
-    const pnl = totalValue - totalCost;
-    const pnlPct = totalCost > 0 ? (pnl / totalCost) * 100 : null;
-    return { totalCost, totalValue, pnl, pnlPct, pricedCount, count: positions.length };
+    return { totalValue, pricedCount, count: positions.length };
   }, [positions, quotes]);
+
+  // Generate portfolio value chart data with proper financial tracking
+  const chartData = useMemo(() => {
+    if (!positions.length || Object.keys(historicalPrices).length === 0) return [];
+    
+    // Initial cash is the portfolio's approximate value (committed cash amount)
+    const initialCash = p?.approximateValue || 0;
+    if (initialCash <= 0) return [];
+    
+    // Get all unique dates from historical data and trade dates
+    const allDates = new Set<string>();
+    Object.values(historicalPrices).forEach(priceArray => {
+      priceArray.forEach(item => allDates.add(item.date));
+    });
+    
+    // Add trade dates
+    positions.forEach(pos => {
+      if (pos.buyDate) {
+        allDates.add(pos.buyDate);
+        // Also add the day before the first trade to show the initial state
+        const dayBefore = new Date(pos.buyDate);
+        dayBefore.setDate(dayBefore.getDate() - 1);
+        allDates.add(dayBefore.toISOString().slice(0, 10));
+      }
+    });
+    
+    // Convert to sorted array
+    const dates = Array.from(allDates).sort();
+    
+    // Track running cash balance and positions
+    let cashBalance = initialCash;
+    const activePositions = new Map<string, {shares: number, symbol: string}>();
+    
+    // Calculate portfolio value for each date
+    return dates.map((date, index) => {
+      const currentDate = new Date(date);
+      
+      // Process any trades that occurred on this date
+      positions.forEach(pos => {
+        const tradeDate = new Date(pos.buyDate || '');
+        if (tradeDate.toDateString() === currentDate.toDateString()) {
+          // Execute buy trade (assume $0 fees for now - can be added later)
+          const tradeCost = pos.buyPrice * pos.shares;
+          cashBalance -= tradeCost;
+          
+          // Add or update position
+          const existingPos = activePositions.get(pos.symbol);
+          if (existingPos) {
+            existingPos.shares += pos.shares;
+          } else {
+            activePositions.set(pos.symbol, {shares: pos.shares, symbol: pos.symbol});
+          }
+        }
+      });
+      
+      // Calculate market value of all active positions
+      let marketValue = 0;
+      activePositions.forEach((position, symbol) => {
+        const symbolPrices = historicalPrices[symbol] || [];
+        let price = null;
+        
+        // Try to find exact date match first
+        const exactMatch = symbolPrices.find(p => p.date === date);
+        if (exactMatch) {
+          price = exactMatch.price;
+        } else {
+          // Find the closest date before or on this date (carry forward last known price)
+          const validPrices = symbolPrices.filter(p => p.date <= date).sort((a, b) => b.date.localeCompare(a.date));
+          if (validPrices.length > 0) {
+            price = validPrices[0].price;
+          } else {
+            // If no historical data available yet, find the position's buy price
+            const pos = positions.find(p => p.symbol === symbol && new Date(p.buyDate || '') <= currentDate);
+            price = pos?.buyPrice || 0;
+          }
+        }
+        
+        if (price && price > 0) {
+          marketValue += price * position.shares;
+        }
+      });
+      
+      // Portfolio value = cash + market value of positions
+      const portfolioValue = cashBalance + marketValue;
+      
+      // Calculate return vs initial cash
+      const returnPct = initialCash > 0 ? ((portfolioValue / initialCash) - 1) * 100 : 0;
+      
+      // Calculate S&P 500 return from the same starting period
+      let spyReturnPct = 0;
+      const spyPrices = historicalPrices['SPY'] || [];
+      if (spyPrices.length > 0) {
+        // Find SPY price on this date (or carry forward)
+        let currentSpyPrice = null;
+        const exactSpyMatch = spyPrices.find(p => p.date === date);
+        if (exactSpyMatch) {
+          currentSpyPrice = exactSpyMatch.price;
+        } else {
+          const validSpyPrices = spyPrices.filter(p => p.date <= date).sort((a, b) => b.date.localeCompare(a.date));
+          if (validSpyPrices.length > 0) {
+            currentSpyPrice = validSpyPrices[0].price;
+          }
+        }
+        
+        // Find the earliest SPY price (baseline for return calculation)
+        const earliestSpyPrice = spyPrices.find(p => p.date >= dates[0])?.price || spyPrices[0]?.price;
+        
+        if (currentSpyPrice && earliestSpyPrice) {
+          spyReturnPct = ((currentSpyPrice / earliestSpyPrice) - 1) * 100;
+        }
+      }
+      
+      return {
+        date,
+        value: Math.round(portfolioValue * 100) / 100,
+        returnPct: Math.round(returnPct * 100) / 100,
+        spyReturnPct: Math.round(spyReturnPct * 100) / 100,
+        cashBalance: Math.round(cashBalance * 100) / 100,
+        marketValue: Math.round(marketValue * 100) / 100,
+        formattedDate: new Date(date).toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: 'numeric' 
+        })
+      };
+    }).filter(item => item.value > 0);
+  }, [positions, historicalPrices, p?.approximateValue]);
 
   // Early returns AFTER all hooks
   if (!isLoaded) return null;
@@ -159,208 +334,130 @@ export default function PortfolioDetail() {
     );
   }
 
+  const hasProposal = Array.isArray(p.proposalHoldings) && p.proposalHoldings.length > 0;
+  const summary = p.proposalSummary;
+  const isRiskBudgeting = typeof summary === "object" && summary?.methodology === "Equal Risk Contribution (ERC)";
+
   // Render
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#EAF7FF] via-[#E8F3FF] to-[#DDEBFF]">
-      <main className="mx-auto max-w-6xl p-6">
+    <main className="min-h-screen bg-gradient-to-br from-[#EAF2FF] via-[#B8F2FF] to-[#DDE7FF] py-10">
+      <div className="mx-auto max-w-5xl px-6">
         {/* Header */}
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{p.name}</h1>
-            <p className="text-sm text-zinc-500">Created {new Date(p.createdAt).toLocaleString()}</p>
+        <div className="mb-6">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-2 text-sm text-zinc-600 hover:text-zinc-900 mb-4"
+          >
+            ← Back to Dashboard
+          </Link>
+          <h1 className="text-3xl font-extrabold text-zinc-900">{p?.name || "Portfolio"}</h1>
+          <div className="mt-2 flex flex-wrap gap-2 text-sm text-zinc-600">
+            <span>{p.riskTolerance}</span>
+            <span>•</span>
+            <span>{p.timeHorizon}</span>
+            <span>•</span>
+            <span>{p.currency}</span>
+            {isRiskBudgeting && (
+              <>
+                <span>•</span>
+                <span className="text-emerald-700 font-semibold">Risk Budgeting</span>
+              </>
+            )}
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/dashboard" className="rounded-xl border px-4 py-2 text-sm hover:shadow">
-              Back to dashboard
-            </Link>
-            <Link href={`/chat?pid=${p.id}`} className="rounded-xl border px-4 py-2 text-sm hover:shadow">
-              Refine with AI
-            </Link>
-            <button
-              onClick={() => downloadCSV(p.proposalHoldings ?? [], p.name)}
-              className="rounded-xl border px-4 py-2 text-sm hover:shadow"
+        </div>
+
+        {!hasProposal ? (
+          <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center shadow-sm">
+            <h2 className="text-lg font-semibold text-zinc-900">No proposal yet</h2>
+            <p className="mt-1 text-sm text-zinc-600">Generate a portfolio allocation to see it here.</p>
+            <Link
+              href={`/portfolio/setup?pid=${pid}`}
+              className="mt-4 inline-flex rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-900 shadow-sm transition hover:shadow-md"
             >
-              Export CSV
-            </button>
+              Generate Portfolio
+            </Link>
           </div>
-        </div>
+        ) : (
+          <>
+            {/* Summary Section */}
+            {summary && (
+              <div className="mb-6 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+                <h2 className="text-xl font-semibold text-zinc-900 mb-4">
+                  {isRiskBudgeting ? "Risk Budgeting Analysis" : "Portfolio Summary"}
+                </h2>
+                
+                {isRiskBudgeting ? (
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <MetricBox label="Methodology" value={summary.methodology} />
+                    <MetricBox label="Portfolio Volatility" value={summary.portfolioVolatility} />
+                    <MetricBox label="Sharpe Ratio" value={summary.sharpeRatio} />
+                    <MetricBox label="Expected Return" value={summary.expectedReturn} />
+                    <MetricBox label="Max Drawdown" value={summary.maxDrawdown} />
+                    <MetricBox 
+                      label="Optimization Status" 
+                      value={summary.optimization?.converged ? `Converged (${summary.optimization.iterations} iter)` : "Completed"} 
+                    />
+                    <MetricBox label="Data As Of" value={summary.dataAsOf} />
+                  </div>
+                ) : typeof summary === "string" ? (
+                  <p className="text-zinc-700 leading-relaxed">{summary}</p>
+                ) : (
+                  <div className="space-y-4 text-zinc-700">
+                    {summary["Economic Thesis"] && (
+                      <div>
+                        <h3 className="font-semibold">Economic Thesis</h3>
+                        <p>{summary["Economic Thesis"]}</p>
+                      </div>
+                    )}
+                    {summary["Portfolio Logic"] && (
+                      <div>
+                        <h3 className="font-semibold">Portfolio Logic</h3>
+                        <p>{summary["Portfolio Logic"]}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
-        {/* Stats */}
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="Positions" value={(p.proposalHoldings?.length ?? 0).toString()} />
-          <StatCard
-            label="Weights sum"
-            value={`${totalWeight.toFixed(0)}%`}
-            hint={totalWeight === 100 ? "Perfect" : "Adjust to 100%"}
-            tone={totalWeight === 100 ? "ok" : totalWeight > 100 ? "bad" : "warn"}
-          />
-          {p.currency && <StatCard label="Currency" value={p.currency} />}
-          {proposalMove && (
-            <StatCard
-              label="Today's move (proposal)"
-              value={formatChange(proposalMove.pct)}
-              hint={`${proposalMove.coveragePct.toFixed(0)}% weight covered`}
-              tone={proposalMove.pct > 0 ? "ok" : proposalMove.pct < 0 ? "bad" : "neutral"}
-            />
-          )}
-        </div>
-
-        {/* Proposed holdings */}
-        <section className="rounded-2xl border bg-white p-4 md:p-6">
-          <h2 className="mb-3 text-lg font-semibold">AI proposed holdings</h2>
-          {p.proposalHoldings?.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-zinc-50 text-zinc-600">
-                  <tr>
-                    <Th>Symbol</Th>
-                    <Th className="text-right">Weight</Th>
-                    <Th className="text-right">Price</Th>
-                    <Th className="text-right">1D</Th>
-                    <Th>Note</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {p.proposalHoldings.map((h) => {
-                    const q = quotes[h.symbol];
-                    return (
-                      <tr key={h.symbol} className="border-t hover:bg-zinc-50/60">
-                        <Td className="font-medium">{h.symbol}</Td>
-                        <Td className="text-right">{formatPct(h.weight)}</Td>
-                        <Td className="text-right">{formatMoney(q?.price, q?.currency || p.currency)}</Td>
-                        <Td className="text-right">{formatChange(q?.changePercent)}</Td>
-                        <Td className="text-zinc-600">{h.note}</Td>
+            {/* Holdings Table */}
+            <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+              <h2 className="text-xl font-semibold text-zinc-900 mb-4">Holdings</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="text-zinc-600 border-b border-zinc-200">
+                      <th className="py-3 pr-6">Symbol</th>
+                      <th className="py-3 pr-6 text-right">Weight</th>
+                      <th className="py-3">Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {p.proposalHoldings?.map((h) => (
+                      <tr key={h.symbol} className="border-b border-zinc-100">
+                        <td className="py-3 pr-6 font-semibold text-zinc-900">{h.symbol}</td>
+                        <td className="py-3 pr-6 text-right font-semibold text-zinc-900">
+                          {h.weight.toFixed(2)}%
+                        </td>
+                        <td className="py-3 text-sm text-zinc-600">{h.note || "—"}</td>
                       </tr>
-                    );
-                  })}
-                  <tr className="border-t bg-zinc-50 font-medium">
-                    <Td>Total</Td>
-                    <Td className="text-right">{formatPct(totalWeight)}</Td>
-                    <Td className="text-right">—</Td>
-                    <Td className="text-right">—</Td>
-                    <Td />
-                  </tr>
-                </tbody>
-              </table>
-              {quotesLoading && <div className="px-3 py-2 text-xs text-zinc-500">Loading quotes…</div>}
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          ) : (
-            <EmptyHoldings id={p.id} />
-          )}
-        </section>
-
-        {/* Summary */}
-        {!!p.proposalSummary && (
-          <section className="mt-6 rounded-2xl border bg-white p-4 md:p-6">
-            <h2 className="mb-3 text-lg font-semibold">Why this portfolio?</h2>
-            <SummaryBlock summary={p.proposalSummary} />
-          </section>
+          </>
         )}
+      </div>
+    </main>
+  );
+}
 
-        {/* Current holdings */}
-        <section className="mt-6 rounded-2xl border bg-white p-4 md:p-6">
-          <h2 className="mb-3 text-lg font-semibold">Your current holdings</h2>
-
-          <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-4">
-            <input
-              value={sym}
-              onChange={(e) => setSym(e.target.value.toUpperCase())}
-              placeholder="Symbol (e.g., SPY)"
-              className="rounded-xl border px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
-            />
-            <input
-              value={buy}
-              onChange={(e) => setBuy(e.target.value)}
-              type="number"
-              step="0.0001"
-              min="0"
-              placeholder="Buy price"
-              className="rounded-xl border px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
-            />
-            <input
-              value={shares}
-              onChange={(e) => setShares(e.target.value)}
-              type="number"
-              step="0.0001"
-              min="0"
-              placeholder="Shares"
-              className="rounded-xl border px-3 py-2 outline-none focus:ring-2 focus:ring-sky-200"
-            />
-            <button onClick={addPosition} className="rounded-xl border px-4 py-2 font-medium hover:shadow">
-              Add position
-            </button>
-          </div>
-
-          {positions.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-4 text-sm text-zinc-600">
-              No positions yet. Add one above.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-zinc-50 text-zinc-600">
-                  <tr>
-                    <Th>Symbol</Th>
-                    <Th className="text-right">Shares</Th>
-                    <Th className="text-right">Buy price</Th>
-                    <Th className="text-right">Current</Th>
-                    <Th className="text-right">Cost</Th>
-                    <Th className="text-right">Value</Th>
-                    <Th className="text-right">P&L</Th>
-                    <Th className="text-right">P&L %</Th>
-                    <Th className="text-right">Actions</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {positions.map((pos) => {
-                    const q = quotes[pos.symbol];
-                    const current = typeof q?.price === "number" ? q.price : null;
-                    const cost = (pos.buyPrice ?? 0) * (pos.shares ?? 0);
-                    const value = current != null ? current * (pos.shares ?? 0) : null;
-                    const pnl = value != null ? value - cost : null;
-                    const pnlPct = pnl != null && cost > 0 ? (pnl / cost) * 100 : null;
-
-                    return (
-                      <tr key={pos.symbol} className="border-t hover:bg-zinc-50/60">
-                        <Td className="font-medium">{pos.symbol}</Td>
-                        <Td className="text-right">{formatNumber(pos.shares)}</Td>
-                        <Td className="text-right">{formatMoney(pos.buyPrice, q?.currency || p.currency)}</Td>
-                        <Td className="text-right">{formatMoney(current, q?.currency || p.currency)}</Td>
-                        <Td className="text-right">{formatMoney(cost, q?.currency || p.currency)}</Td>
-                        <Td className="text-right">{formatMoney(value, q?.currency || p.currency)}</Td>
-                        <Td className="text-right">{formatMoneyColored(pnl, q?.currency || p.currency)}</Td>
-                        <Td className="text-right">{formatChange(pnlPct)}</Td>
-                        <Td className="text-right">
-                          <button
-                            onClick={() => removePosition(pos.symbol)}
-                            className="rounded-lg border px-2 py-1 text-xs hover:shadow"
-                          >
-                            Delete
-                          </button>
-                        </Td>
-                      </tr>
-                    );
-                  })}
-                  <tr className="border-t bg-zinc-50 font-medium">
-                    <Td>Total</Td>
-                    <Td className="text-right">—</Td>
-                    <Td className="text-right">—</Td>
-                    <Td className="text-right">—</Td>
-                    <Td className="text-right">{formatMoney(currentTotals.totalCost, p.currency)}</Td>
-                    <Td className="text-right">{formatMoney(currentTotals.totalValue, p.currency)}</Td>
-                    <Td className="text-right">{formatMoneyColored(currentTotals.pnl, p.currency)}</Td>
-                    <Td className="text-right">{formatChange(currentTotals.pnlPct)}</Td>
-                    <Td className="text-right text-xs text-zinc-500">
-                      {currentTotals.pricedCount}/{currentTotals.count} priced
-                    </Td>
-                  </tr>
-                </tbody>
-              </table>
-              {quotesLoading && <div className="px-3 py-2 text-xs text-zinc-500">Loading quotes…</div>}
-            </div>
-          )}
-        </section>
-      </main>
+function MetricBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+      <div className="text-xs text-zinc-600 uppercase tracking-wide">{label}</div>
+      <div className="mt-1 text-lg font-bold text-zinc-900">{value}</div>
     </div>
   );
 }
@@ -376,24 +473,22 @@ function StatCard({
   tone = "neutral",
 }: {
   label: string;
-  value: React.ReactNode;    // allow colored spans
+  value: React.ReactNode;
   hint?: string;
   tone?: "neutral" | "ok" | "warn" | "bad";
 }) {
-  const toneClasses =
-    tone === "ok"
-      ? "border-emerald-200 bg-emerald-50"
-      : tone === "warn"
-      ? "border-amber-200 bg-amber-50"
-      : tone === "bad"
-      ? "border-rose-200 bg-rose-50"
-      : "border-zinc-200 bg-zinc-50";
-
+  const toneColors = {
+    neutral: "bg-white/90 border-gray-200",
+    ok: "bg-emerald-50 border-emerald-200",
+    warn: "bg-amber-50 border-amber-200",
+    bad: "bg-rose-50 border-rose-200",
+  };
+  
   return (
-    <div className={`rounded-2xl border ${toneClasses} p-4`}>
-      <div className="text-xs uppercase tracking-wide text-zinc-600">{label}</div>
-      <div className="mt-1 text-xl font-semibold">{value}</div>
-      {hint && <div className="text-xs text-zinc-600">{hint}</div>}
+    <div className={`rounded-lg border p-4 ${toneColors[tone]}`}>
+      <div className="text-gray-600 text-sm mb-1">{label}</div>
+      <div className="text-2xl font-bold text-gray-900">{value}</div>
+      {hint && <div className="text-xs text-gray-500 mt-1">{hint}</div>}
     </div>
   );
 }
@@ -416,27 +511,26 @@ function EmptyHoldings({ id }: { id: string }) {
  * Renders the structured summary (string or object with sections).
  */
 function SummaryBlock({ summary }: { summary: any }) {
-  if (!summary) return null;
-  if (typeof summary === "string") return <p className="text-zinc-700">{summary}</p>;
-  const sections: Array<[string, any]> = [
-    ["Economic Thesis", summary["Economic Thesis"]],
-    ["How Your Answers Shaped This", summary["How Your Answers Shaped This"]],
-    ["Portfolio Logic", summary["Portfolio Logic"]],
-    ["Key Trade-offs", summary["Key Trade-offs"]],
-  ];
+  if (!summary) return <p className="text-gray-500 italic">No summary available.</p>;
+  
+  if (typeof summary === "string") {
+    return (
+      <div className="prose prose-sm max-w-none text-gray-900">
+        <p className="whitespace-pre-wrap">{summary}</p>
+      </div>
+    );
+  }
+
+  // If it's an object with sections
   return (
-    <div className="space-y-4">
-      {sections.filter(([, v]) => v != null).map(([title, body]) => (
-        <section key={title}>
-          <h3 className="font-semibold">{title}</h3>
-          {Array.isArray(body) ? (
-            <ul className="mt-1 list-disc pl-5 text-zinc-700">
-              {body.map((x: any, i: number) => <li key={i}>{String(x)}</li>)}
-            </ul>
-          ) : (
-            <p className="mt-1 text-zinc-700">{String(body)}</p>
-          )}
-        </section>
+    <div className="space-y-4 text-gray-900">
+      {Object.entries(summary).map(([key, value]) => (
+        <div key={key}>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2 capitalize">
+            {key.replace(/([A-Z])/g, ' $1').trim()}
+          </h3>
+          <p className="text-gray-800 whitespace-pre-wrap">{String(value)}</p>
+        </div>
       ))}
     </div>
   );

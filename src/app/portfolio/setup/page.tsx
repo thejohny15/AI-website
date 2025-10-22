@@ -25,28 +25,36 @@ export default function PortfolioSetupOptions() {
           Pick the path you prefer to construct your first portfolio.
         </p>
 
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {/* Option 1 */}
-          <Link href={`/portfolio/ai-full?pid=${pid}`} className={card}>
-            <h3 className="font-semibold">Option 1 — AI builds it all</h3>
+          <Link href={`/portfolio/ai-full-option1?pid=${pid}`} className={card}>
+            <h3 className="font-semibold">Option 1 — AI Full Portfolio</h3>
             <p className="mt-1 text-white/80 text-sm">
               Let the AI create the full portfolio and explain its decisions and thesis.
             </p>
           </Link>
 
           {/* Option 2 */}
-          <Link href={`/portfolio/path?pid=${pid}`} className={card}>
-            <h3 className="font-semibold">Option 2 — Pick a macro path</h3>
+          <Link href={`/portfolio/costum-option2?pid=${pid}`} className={card}>
+            <h3 className="font-semibold">Option 2 — Custom Build</h3>
             <p className="mt-1 text-white/80 text-sm">
-              AI summarizes current conditions and plausible futures. You select a path, then it builds accordingly.
+              Customize your portfolio manually with AI assistance.
             </p>
           </Link>
 
           {/* Option 3 */}
-          <Link href={`/portfolio/custom?pid=${pid}`} className={card}>
-            <h3 className="font-semibold">Option 3 — You set the scenario</h3>
+          <Link href={`/portfolio/full-analysis-option3?pid=${pid}`} className={card}>
+            <h3 className="font-semibold">Option 3 — Full Analysis</h3>
             <p className="mt-1 text-white/80 text-sm">
-              Define your own assumptions about the economy, and the AI constructs a portfolio for that scenario.
+              Deep market analysis and scenario-based portfolio construction.
+            </p>
+          </Link>
+
+          {/* Option 4 */}
+          <Link href={`/portfolio/new-option4?pid=${pid}`} className={card}>
+            <h3 className="font-semibold">Option 4 — Quick Start</h3>
+            <p className="mt-1 text-white/80 text-sm">
+              Fast portfolio setup with AI recommendations.
             </p>
           </Link>
         </div>

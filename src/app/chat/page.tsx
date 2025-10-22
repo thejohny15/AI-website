@@ -1,8 +1,9 @@
 "use client";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { Suspense } from "react";
 
-export default function ChatPage() {
+function ChatPageContent() {
   const pid = useSearchParams().get("pid");
   const router = useRouter();
   if (!pid) { if (typeof window !== "undefined") router.replace("/dashboard"); return null; }
@@ -24,5 +25,13 @@ export default function ChatPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-white">Loading...</div>}>
+      <ChatPageContent />
+    </Suspense>
   );
 }

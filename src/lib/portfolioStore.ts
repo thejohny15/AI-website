@@ -1,6 +1,13 @@
 // src/lib/portfolioStore.ts
 
-export type Holding = { symbol: string; weight: number; note?: string };
+export type Holding = { 
+  symbol: string; 
+  weight: number; 
+  note?: string;
+  recommendedShares?: number;
+  estimatedPrice?: number;
+  investmentAmount?: number;
+};
 
 export type Portfolio = {
   id: string;
@@ -11,7 +18,7 @@ export type Portfolio = {
   // Questionnaire
   riskTolerance?: "Conservative" | "Balanced" | "Aggressive";
   timeHorizon?: "0-2" | "3-5" | "6-10" | "10+";
-  approximateValue?: number;
+  approximateValue?: number; // Cash available for investment (required for new portfolios, optional for backwards compatibility)
   currency?: "USD" | "EUR" | "GBP" | "CHF" | "JPY";
   exchanges?: string[];
   focus?: string;
@@ -55,7 +62,7 @@ export function getPortfolio(userId: string, id: string): Portfolio | undefined 
 
 export function createPortfolio(
   userId: string,
-  init: Partial<Portfolio> & { name?: string }
+  init: Partial<Portfolio> & { name?: string; approximateValue?: number }
 ): Portfolio {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const p: Portfolio = {

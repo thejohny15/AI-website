@@ -7,75 +7,68 @@ type Quote = {
   symbol: string;
   price: number | null;
   change: number | null;
-  changePercent: number | null; // e.g. -0.56 for -0.56%
+  changePercent: number | null;
   currency: string | null;
   name?: string | null;
-  source: "fmp";
+  source: string;
   time?: string | null;
 };
 
 type Body = { symbols: string[] };
 
 export async function POST(req: Request) {
-  const key = process.env.FMP_API_KEY;
-  if (!key) {
-    return NextResponse.json({ error: "Missing FMP_API_KEY" }, { status: 500 });
-  }
-
   try {
     const { symbols } = (await req.json()) as Body;
     if (!Array.isArray(symbols) || symbols.length === 0) {
       return NextResponse.json({ error: "symbols required" }, { status: 400 });
     }
 
-    // Clean + de-dup; FMP likes plain tickers (supports many global tickers too)
-    const uniq = Array.from(new Set(symbols.map((s) => String(s).trim().toUpperCase()))).slice(0, 200);
-
-    // Batch requests so we don’t hit URL limits (FMP handles quite a lot per call, 50 is safe)
-    const chunkSize = 50;
-    const chunks: string[][] = [];
-    for (let i = 0; i < uniq.length; i += chunkSize) chunks.push(uniq.slice(i, i + chunkSize));
-
+    const uniq = Array.from(new Set(symbols.map((s) => String(s).trim().toUpperCase()))).slice(0, 50);
     const out: Record<string, Quote> = {};
 
-    for (const c of chunks) {
-      const url =
-        "https://financialmodelingprep.com/api/v3/quote/" +
-        encodeURIComponent(c.join(",")) +
-        `?apikey=${key}`;
-
-      const res = await fetch(url, { next: { revalidate: 15 } }); // cache briefly
-      if (!res.ok) continue;
-
-      const arr = (await res.json()) as any[];
-      if (!Array.isArray(arr)) continue;
-
-      for (const q of arr) {
-        // FMP returns fields like: symbol, name, price, change, changesPercentage, timestamp, currency
-        const rawSym = String(q?.symbol ?? "").toUpperCase();
-        if (!rawSym) continue;
-
-        // Normalize a base key (strip common suffixes like ".US")
-        const baseKey = rawSym.split(":").pop()!.split(".")[0]; // “VUKE.L” → “VUKE”, “AAPL” → “AAPL”
-
-        // Avoid overwriting if we already filled this base symbol
-        if (out[baseKey]) continue;
-
-        const price = toNum(q?.price);
-        out[baseKey] = {
-          symbol: baseKey,
-          price,
-          change: toNum(q?.change),
-          changePercent: toNum(q?.changesPercentage), // already in percent units
-          currency: q?.currency ?? null,
-          name: q?.name ?? null,
-          source: "fmp",
-          time: q?.timestamp ? new Date(q.timestamp * 1000).toISOString() : null,
-        };
+    // Use Yahoo Finance API (free, no API key needed)
+    for (const symbol of uniq) {
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
+        const res = await fetch(url, { 
+          next: { revalidate: 60 },
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+          }
+        });
+        
+        if (res.ok) {
+          const data = await res.json();
+          const result = data.chart?.result?.[0];
+          const meta = result?.meta;
+          
+          if (meta && typeof meta.regularMarketPrice === 'number') {
+            const price = meta.regularMarketPrice;
+            const previousClose = meta.previousClose || meta.chartPreviousClose;
+            const change = (price && previousClose) ? price - previousClose : null;
+            const changePercent = (change && previousClose) ? (change / previousClose) * 100 : null;
+            
+            out[symbol] = {
+              symbol,
+              price: toNum(price),
+              change: toNum(change),
+              changePercent: toNum(changePercent),
+              currency: meta.currency || "USD",
+              name: meta.longName || meta.shortName || null,
+              source: "yahoo",
+              time: new Date().toISOString(),
+            };
+          }
+        } else {
+          console.log(`Yahoo Finance error for ${symbol}: ${res.status}`);
+        }
+      } catch (e) {
+        console.log(`Error fetching ${symbol}:`, e);
+        continue;
       }
     }
 
-    return NextResponse.json({ quotes: out, provider: "fmp" });
+    return NextResponse.json({ quotes: out, provider: "yahoo" });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "failed" }, { status: 500 });
   }
@@ -84,8 +77,8 @@ export async function POST(req: Request) {
 export async function GET() {
   return NextResponse.json({
     ok: true,
-    provider: "fmp",
-    usage: "POST { symbols: string[] }  // reads FMP_API_KEY from env",
+    provider: "yahoo",
+    usage: "POST { symbols: string[] }  // uses Yahoo Finance (free, no API key needed)",
   });
 }
 

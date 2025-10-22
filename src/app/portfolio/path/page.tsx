@@ -10,6 +10,7 @@ import {
   updatePortfolio,
   movePortfolio,
   type Holding,
+  type Portfolio,
 } from "@/lib/portfolioStore";
 
 type CurrentSnapshot = {
@@ -93,10 +94,16 @@ useEffect(() => {
       setError(null);
       setProposal(null);
 
+      // Ensure portfolio has required fields for API
+      const portfolioForAPI = {
+        ...p,
+        approximateValue: p.approximateValue || 10000 // Default value if missing
+      };
+      
       const res = await fetch("/api/path/propose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ portfolio: p }), // <-- use the ensured portfolio
+        body: JSON.stringify({ portfolio: portfolioForAPI }), // <-- use the ensured portfolio
       });
 
       const data = await res.json();
@@ -130,10 +137,16 @@ useEffect(() => {
       setBuilding(true);
       setError(null);
 
+      // Ensure API compatibility
+      const portfolioForAPI = {
+        ...portfolio,
+        approximateValue: portfolio.approximateValue || 10000
+      };
+
       const res = await fetch("/api/path/build", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ portfolio, scenarioId: picked }),
+        body: JSON.stringify({ portfolio: portfolioForAPI, scenarioId: picked }),
       });
 
       const data = await res.json();
@@ -279,7 +292,7 @@ useEffect(() => {
                       {proposal.holdings.map((h) => (
                         <tr key={h.symbol} className="border-t border-white/10">
                           <td className="py-2 font-semibold">{h.symbol}</td>
-                          <td className="py-2">{h.weight}%</td>
+                          <td className="py-2">{h.weight.toFixed(2)}%</td>
                           <td className="py-2 text-white/80">{h.note}</td>
                         </tr>
                       ))}

@@ -1,0 +1,5 @@
+{
+  "scripts": {
+    "fix-clerk": "npm uninstall @clerk/nextjs @clerk/shared @clerk/clerk-react && npm install @clerk/nextjs@latest && rm -rf .next && npm run dev"
+  }
+}

@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useUser, SignedIn, SignedOut, SignInButton } from "@clerk/nextjs";
 import { createPortfolio } from "@/lib/portfolioStore";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 
 export default function NewPortfolioPage() {
   return (
@@ -76,9 +76,14 @@ function CreatePortfolioForm() {
       return;
     }
 
+    if (!approximateValue || approximateValue.trim() === "") {
+      setError("Please enter the amount you want to invest.");
+      return;
+    }
+
     const valueNum = Number(approximateValue);
-    if (approximateValue && (Number.isNaN(valueNum) || valueNum < 0)) {
-      setError("Approximate value must be a non-negative number.");
+    if (Number.isNaN(valueNum) || valueNum <= 0) {
+      setError("Investment amount must be a positive number.");
       return;
     }
 
@@ -96,7 +101,7 @@ function CreatePortfolioForm() {
         name: name.trim(),
         riskTolerance,
         timeHorizon,
-        approximateValue: approximateValue ? valueNum : undefined,
+        approximateValue: valueNum, // Amount to invest
         currency,
         exchanges,
         focus: focus.trim() || undefined,
@@ -133,7 +138,7 @@ function CreatePortfolioForm() {
           />
         </div>
 
-        {/* Risk tolerance */}
+       {/* Risk tolerance */}
         <div className="grid gap-2">
           <Label>Risk tolerance</Label>
           <div className="flex flex-wrap gap-2">
@@ -169,9 +174,9 @@ function CreatePortfolioForm() {
           </select>
         </div>
 
-        {/* Approximate value + currency */}
+        {/* Cash available */}
         <div className="grid gap-2">
-          <Label>Approximate portfolio value (optional)</Label>
+          <Label>Amount to invest</Label>
           <div className="flex gap-2">
             <input
               type="number"
@@ -180,7 +185,8 @@ function CreatePortfolioForm() {
               value={approximateValue}
               onChange={(e) => setApproximateValue(e.target.value)}
               className="w-full rounded-xl border border-white/30 bg-white/90 text-[var(--bg-end)] px-3 py-2 outline-none focus:ring-4 focus:ring-white/30"
-              placeholder="e.g. 25000"
+              placeholder="Enter amount you want to invest"
+              required
             />
             <select
               value={currency}
