@@ -320,3 +320,56 @@ export function calculateMaxDrawdownDetailed(prices: number[]): {
     recovery,
   };
 }
+
+/**
+ * Calculate correlation matrix from covariance matrix
+ * 
+ * Correlation = Cov(i,j) / (σ_i × σ_j)
+ * 
+ * @param covMatrix - Covariance matrix
+ * @returns Correlation matrix (values between -1 and 1)
+ */
+export function calculateCorrelationMatrix(covMatrix: number[][]): number[][] {
+  const n = covMatrix.length;
+  const corrMatrix: number[][] = [];
+  
+  // Extract standard deviations (sqrt of diagonal elements)
+  const stdDevs = covMatrix.map((row, i) => Math.sqrt(row[i]));
+  
+  // Calculate correlation for each pair
+  for (let i = 0; i < n; i++) {
+    corrMatrix[i] = [];
+    for (let j = 0; j < n; j++) {
+      if (i === j) {
+        corrMatrix[i][j] = 1.0; // Perfect correlation with itself
+      } else {
+        // Correlation = Covariance / (σ_i × σ_j)
+        corrMatrix[i][j] = covMatrix[i][j] / (stdDevs[i] * stdDevs[j]);
+      }
+    }
+  }
+  
+  return corrMatrix;
+}
+
+/**
+ * Calculate average correlation (excluding diagonal)
+ * 
+ * @param corrMatrix - Correlation matrix
+ * @returns Average correlation between assets
+ */
+export function calculateAverageCorrelation(corrMatrix: number[][]): string {
+  const n = corrMatrix.length;
+  let sum = 0;
+  let count = 0;
+  
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      sum += corrMatrix[i][j];
+      count++;
+    }
+  }
+  
+  const avg = count > 0 ? sum / count : 0;
+  return avg.toFixed(2);
+}

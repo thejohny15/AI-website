@@ -916,6 +916,7 @@ function RiskBudgetingPageContent() {
               </div>
             </div>
 
+            {/* Advanced Analytics Section */}
             {results.analytics && (
               <div className="space-y-6">
                 <h2 className="text-2xl font-bold mt-8">📊 Advanced Analytics</h2>
@@ -1054,45 +1055,90 @@ function RiskBudgetingPageContent() {
 
                 {/* Stress Testing */}
                 <div className="rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur">
-                  <h3 className="text-xl font-semibold mb-4">Stress Testing</h3>
+                  <h3 className="text-xl font-semibold mb-4">Stress Testing & Risk Analysis</h3>
                   
                   {/* Worst Historical Period */}
-                  <div className="mb-6 rounded-xl border border-rose-300/30 bg-rose-500/10 p-4">
-                    <h4 className="font-semibold text-rose-200 mb-2">Worst 30-Day Period</h4>
-                    <div className="grid gap-2 text-sm text-rose-100">
-                      <div className="flex justify-between">
-                        <span>Period:</span>
-                        <span className="font-semibold">
-                          {results.analytics.stressTest.worstPeriod.start} to {results.analytics.stressTest.worstPeriod.end}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Loss:</span>
-                        <span className="font-semibold">{results.analytics.stressTest.worstPeriod.loss}%</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Volatility Shock Scenario */}
-                  <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 p-4">
-                    <h4 className="font-semibold text-amber-200 mb-3">{results.analytics.stressTest.volatilityShock.scenario}</h4>
-                    <p className="text-sm text-amber-100 mb-3">
-                      If market volatility doubled, here's how portfolio weights would adjust:
-                    </p>
-                    <div className="space-y-2">
-                      {results.analytics.stressTest.volatilityShock.newWeights.map((w: any) => (
-                        <div key={w.ticker} className="flex justify-between text-sm">
-                          <span className="font-medium">{w.ticker}</span>
-                          <span>
-                            {w.weight}% 
-                            <span className={parseFloat(w.change) > 0 ? "text-emerald-300" : "text-rose-300"}>
-                              {" "}({parseFloat(w.change) > 0 ? "+" : ""}{w.change}%)
-                            </span>
+                  {results.analytics.stressTest?.worstPeriod && (
+                    <div className="mb-6 rounded-xl border border-rose-300/30 bg-rose-500/10 p-4">
+                      <h4 className="font-semibold text-rose-200 mb-2">Worst 30-Day Period</h4>
+                      <div className="grid gap-2 text-sm text-rose-100">
+                        <div className="flex justify-between">
+                          <span>Period:</span>
+                          <span className="font-semibold">
+                            {results.analytics.stressTest.worstPeriod.start} to {results.analytics.stressTest.worstPeriod.end}
                           </span>
                         </div>
-                      ))}
+                        <div className="flex justify-between">
+                          <span>Loss:</span>
+                          <span className="font-semibold">{results.analytics.stressTest.worstPeriod.loss}%</span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* Correlation Matrix */}
+                  {results.correlationMatrix && (
+                    <div className="rounded-xl border border-blue-300/30 bg-blue-500/10 p-4">
+                      <h4 className="font-semibold text-blue-200 mb-3">Asset Correlation Matrix</h4>
+                      <p className="text-xs text-blue-100 mb-3">
+                        Shows how assets move together. Lower correlations = better diversification.
+                      </p>
+                      
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr>
+                              <th className="p-2 text-left text-blue-200/80">Asset</th>
+                              {results.weights.map((w: any) => (
+                                <th key={w.ticker} className="p-2 text-center text-blue-200/80 font-medium">
+                                  {w.ticker}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {results.correlationMatrix.map((row: number[], i: number) => (
+                              <tr key={i} className="border-t border-blue-300/20">
+                                <td className="p-2 font-medium text-blue-100">
+                                  {results.weights[i].ticker}
+                                </td>
+                                {row.map((corr: number, j: number) => (
+                                  <td
+                                    key={j}
+                                    className="p-2 text-center font-semibold"
+                                    style={{
+                                      backgroundColor: corr > 0 
+                                        ? `rgba(239, 68, 68, ${0.3 + Math.abs(corr) * 0.7})` // Red for positive (max 100%)
+                                        : `rgba(34, 197, 94, ${0.3 + Math.abs(corr) * 0.7})`, // Green for negative (max 100%)
+                                      color: Math.abs(corr) > 0.3 ? 'white' : 'rgba(255,255,255,0.95)'
+                                    }}
+                                  >
+                                    {corr.toFixed(2)}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      
+                      <div className="mt-3 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-5 h-3 rounded" style={{background: 'rgba(34, 197, 94, 1)'}}></div>
+                            <span className="text-blue-100">Negative (diversifies)</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-5 h-3 rounded" style={{background: 'rgba(239, 68, 68, 1)'}}></div>
+                            <span className="text-blue-100">Positive (moves together)</span>
+                          </div>
+                        </div>
+                        <span className="text-blue-100 font-semibold">
+                          Avg Correlation: {results.avgCorrelation}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

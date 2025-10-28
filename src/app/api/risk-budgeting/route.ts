@@ -8,6 +8,8 @@ import {
   calculateExpectedReturn,
   calculateSharpeRatio,
   calculateMaxDrawdown,
+  calculateCorrelationMatrix,
+  calculateAverageCorrelation,
 } from "@/lib/riskBudgeting";
 import {
   runBacktest,
@@ -247,6 +249,10 @@ export async function POST(req: NextRequest) {
     
     const asOf = new Date().toISOString().split('T')[0];
     
+    // Calculate correlation matrix from covariance matrix
+    const correlationMatrix = calculateCorrelationMatrix(covMatrix);
+    const avgCorrelation = calculateAverageCorrelation(correlationMatrix);
+    
     // Run backtest for advanced analytics
     console.log("Running historical backtest...");
     const commonDates = Array.from(alignedPrices.values())[0].length;
@@ -274,10 +280,6 @@ export async function POST(req: NextRequest) {
     // Find worst crisis period
     const worstPeriod = findWorstPeriod(backtest.portfolioValues, dateArray, 30);
     
-    // Stress test: 2x volatility
-    const stressedCovMatrix = stressTestVolatility(covMatrix, 2);
-    const stressedOptimization = optimizeERC(stressedCovMatrix, 1000, 1e-6, targetBudgets);
-    
     console.log("=== RETURNING RESULTS ===");
     console.log("Metrics:", metrics);
     
@@ -285,6 +287,8 @@ export async function POST(req: NextRequest) {
       weights,
       metrics,
       asOf,
+      correlationMatrix,
+      avgCorrelation,
       optimization: {
         converged: optimization.converged,
         iterations: optimization.iterations,
@@ -328,14 +332,6 @@ export async function POST(req: NextRequest) {
             start: worstPeriod.startDate,
             end: worstPeriod.endDate,
             loss: worstPeriod.loss.toFixed(2),
-          },
-          volatilityShock: {
-            scenario: "2x Volatility",
-            newWeights: stressedOptimization.weights.map((w, i) => ({
-              ticker: tickers[i],
-              weight: (w * 100).toFixed(2),
-              change: ((w - optimization.weights[i]) * 100).toFixed(2),
-            })),
           },
         },
       },
