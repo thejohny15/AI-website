@@ -23,7 +23,6 @@ function RiskBudgetingPageContent() {
     // Additional Equity
     { id: "smallcap", name: "US Small Cap", ticker: "IWM", enabled: false, description: "Russell 2000", category: "Equity" },
     { id: "intl", name: "International Equities", ticker: "EFA", enabled: false, description: "Developed Markets ex-US", category: "Equity" },
-    { id: "emerging", name: "Emerging Markets", ticker: "EEM", enabled: false, description: "EM Equities", category: "Equity" },
     
     // Additional Fixed Income
     { id: "treasury-short", name: "Short-Term Treasuries", ticker: "SHY", enabled: false, description: "1-3 Year Treasury", category: "Fixed Income" },
@@ -46,6 +45,7 @@ function RiskBudgetingPageContent() {
   const [targetVolatility, setTargetVolatility] = useState<number | null>(null);
   const [useVolatilityTarget, setUseVolatilityTarget] = useState(false);
   const [lookbackPeriod, setLookbackPeriod] = useState<'3m' | '1y' | '3y' | '5y'>('5y');
+  const [includeDividends, setIncludeDividends] = useState(true);
 
   function toggleAsset(id: string) {
     setAssetClasses(prev =>
@@ -100,7 +100,8 @@ function RiskBudgetingPageContent() {
         targetVolatility: useVolatilityTarget && targetVolatility 
           ? targetVolatility / 100 // Convert to decimal
           : undefined,
-        lookbackPeriod: lookbackPeriod
+        lookbackPeriod: lookbackPeriod,
+        includeDividends: includeDividends
       };
       
       console.log("Calling API with payload:", payload);
@@ -263,7 +264,7 @@ function RiskBudgetingPageContent() {
                 // Select aggressive assets
                 setAssetClasses(prev => prev.map(a => ({
                   ...a,
-                  enabled: ['equities', 'smallcap', 'intl', 'emerging', 'reits', 'commodities'].includes(a.id)
+                  enabled: ['equities', 'smallcap', 'intl', 'reits', 'commodities'].includes(a.id)
                 })));
                 // Don't force target volatility - let natural allocation work
                 setUseVolatilityTarget(false);
@@ -373,6 +374,45 @@ function RiskBudgetingPageContent() {
             <span className="ml-auto text-sm text-slate-200 self-center font-medium">
               {assetClasses.filter(a => a.enabled).length} selected
             </span>
+          </div>
+        </div>
+
+        {/* Return Calculation Toggle */}
+        <div className="mt-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-xl font-bold text-white">Return Calculation</h2>
+              <p className="text-sm text-slate-200 mt-1">
+                {includeDividends 
+                  ? "Including dividend yields in all return calculations (automatically reinvested, recommended)"
+                  : "Price returns only (excludes dividend income)"}
+              </p>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <span className="text-sm text-slate-200">Include Dividends</span>
+              <input
+                type="checkbox"
+                checked={includeDividends}
+                onChange={(e) => setIncludeDividends(e.target.checked)}
+                className="h-5 w-5 rounded"
+              />
+            </label>
+          </div>
+
+          <div className="rounded-xl border border-emerald-300/30 bg-emerald-500/10 p-3">
+            <div className="flex items-start gap-2 text-xs text-emerald-100">
+              <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+              <p>
+                <strong>Dividends Matter:</strong> ETFs like SPY (~1.5% yield), LQD (~3-4% yield), and TLT (~2-3% yield) 
+                pay regular dividends. Dividends are automatically reinvested to buy additional shares. 
+                Over 5 years, this can add 10-20% to total returns. 
+                {includeDividends 
+                  ? " ✓ We're including them for accurate performance measurement."
+                  : " ⚠️ Excluding dividends will underestimate true returns."}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -794,6 +834,11 @@ function RiskBudgetingPageContent() {
                     {lookbackPeriod === '3y' && '3 Years'}
                     {lookbackPeriod === '5y' && '5 Years'}
                   </span>
+                  {results.includeDividends && (
+                    <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      📈 With Dividends
+                    </span>
+                  )}
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
@@ -821,6 +866,130 @@ function RiskBudgetingPageContent() {
                   value={`${results.metrics.maxDrawdown}%`}
                 />
               </div>
+              
+              {/* Dividend Contribution Display */}
+              {results.dividendContribution && results.includeDividends && (
+                <div className="mt-4 rounded-xl border border-emerald-300/30 bg-emerald-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="text-emerald-300 mt-0.5">
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-emerald-200 mb-2">Dividend Income (Reinvested)</h3>
+                      <div className="text-sm text-emerald-100 space-y-2">
+                        <div className="flex justify-between">
+                          <span>Portfolio Dividend Yield:</span>
+                          <span className="font-semibold text-emerald-50">{results.dividendContribution.portfolioDividendYield}% annually</span>
+                        </div>
+                        {results.analytics?.backtest?.dividendCash && (
+                          <div className="flex justify-between pt-2 border-t border-emerald-300/20">
+                            <span>Total Dividends Received & Reinvested:</span>
+                            <span className="font-bold text-emerald-50">${results.analytics.backtest.dividendCash.toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className="mt-3 pt-3 border-t border-emerald-300/20">
+                          <div className="text-xs text-emerald-200/80 mb-2">
+                            Yield by Asset (calculated over {results.dividendContribution.calculatedOver || 'backtest period'}):
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            {results.dividendContribution.assetYields.map((asset: any) => (
+                              <div key={asset.ticker} className="flex justify-between text-xs">
+                                <span className="text-emerald-200/70">{asset.ticker}:</span>
+                                <span className="font-semibold text-emerald-100">{asset.yield}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <p className="text-xs text-emerald-200/70 mt-3 pt-2 border-t border-emerald-300/10">
+                          💡 Yields fluctuate with price changes. Historical average shown.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Dividend Cash Display (when dividends NOT reinvested) */}
+              {!results.includeDividends && results.analytics?.backtest?.dividendCash && results.analytics.backtest.dividendCash > 0 && (
+                <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="text-amber-300 mt-0.5">
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-amber-200 mb-2">💰 Dividend Cash Generated (Not Reinvested)</h3>
+                      <div className="text-sm text-amber-100 space-y-2">
+                        <p>
+                          Your portfolio generated <span className="font-bold text-lg text-amber-50">${results.analytics.backtest.dividendCash.toFixed(2)}</span> in 
+                          dividend cash over the backtest period.
+                        </p>
+                        <div className="mt-3 pt-3 border-t border-amber-300/20">
+                          <p className="text-xs text-amber-200/90">
+                            <strong>⚠️ Opportunity Cost:</strong> This cash is sitting idle in your account, not earning additional returns.
+                          </p>
+                          <p className="text-xs text-amber-200/80 mt-2">
+                            💡 <strong>Tip:</strong> Enable "Include Dividends" above to see how much more you'd earn by automatically 
+                            reinvesting this cash into more shares!
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Show dividend info even when OFF */}
+              {!results.includeDividends && results.dividendContribution && (
+                <div className="mt-4 rounded-xl border border-blue-300/30 bg-blue-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="text-blue-300 mt-0.5">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-blue-200 text-sm mb-2">Portfolio Dividend Yield Information</h4>
+                      <div className="text-xs text-blue-100 space-y-1">
+                        <div className="flex justify-between">
+                          <span>Expected Annual Yield:</span>
+                          <span className="font-semibold">{results.dividendContribution.portfolioDividendYield}%</span>
+                        </div>
+                        {results.analytics?.backtest?.dividendCash && results.analytics.backtest.dividendCash > 0 && (
+                          <>
+                            <div className="flex justify-between mt-2 pt-2 border-t border-blue-300/20">
+                              <span>Cash Accumulated (not reinvested):</span>
+                              <span className="font-bold text-blue-50">${results.analytics.backtest.dividendCash.toFixed(2)}</span>
+                            </div>
+                            {results.analytics.backtest.dividendCashIfReinvested && (
+                              <>
+                                <div className="flex justify-between mt-1">
+                                  <span className="text-blue-200/70">If reinvested, would have generated:</span>
+                                  <span className="font-semibold text-blue-100">${results.analytics.backtest.dividendCashIfReinvested.toFixed(2)}</span>
+                                </div>
+                                {results.analytics.backtest.missedDividendOpportunity && results.analytics.backtest.missedDividendOpportunity > 0 && (
+                                  <div className="flex justify-between mt-1 p-2 rounded bg-amber-500/20 border border-amber-300/30">
+                                    <span className="font-semibold text-amber-200">💸 Missed opportunity:</span>
+                                    <span className="font-bold text-amber-100">${results.analytics.backtest.missedDividendOpportunity.toFixed(2)}</span>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </>
+                        )}
+                        <p className="text-blue-200/70 mt-2">
+                          Based on {results.dividendContribution.calculatedOver || 'historical data'}. Enable dividend reinvestment to capture this income.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               <p className="mt-4 text-xs text-white/60">
                 Based on 5-year historical data as of {results.asOf}
                 {results.optimization && (
@@ -935,15 +1104,140 @@ function RiskBudgetingPageContent() {
                   
                   {/* Backtest Metrics */}
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                    <MetricCard label="Total Return" value={`${results.analytics.backtest.totalReturn}%`} />
+                    <MetricCard 
+                      label={results.includeDividends ? "Total Return (with dividends)" : "Total Return (price only)"} 
+                      value={`${results.analytics.backtest.totalReturn}%`} 
+                    />
                     <MetricCard label="Ann. Return" value={`${results.analytics.backtest.annualizedReturn}%`} />
                     <MetricCard label="Ann. Volatility" value={`${results.analytics.backtest.annualizedVolatility}%`} />
                     <MetricCard label="Sharpe Ratio" value={results.analytics.backtest.sharpeRatio} />
                     <MetricCard label="Max Drawdown" value={`${results.analytics.backtest.maxDrawdown}%`} />
                     <MetricCard label="Rebalances" value={results.analytics.backtest.rebalanceCount.toString()} />
-                    <MetricCard label="Final Value" value={`$${results.analytics.backtest.finalValue}`} />
+                    <MetricCard 
+                      label="Final Value" 
+                      value={`$${results.analytics.backtest.finalValue}`} 
+                    />
                     <MetricCard label="Initial Value" value="$10,000" />
                   </div>
+                  
+                  {/* Dividend Cash Info */}
+                  {results.analytics.backtest.dividendCash && results.analytics.backtest.dividendCash > 0 && (
+                    <div className="mt-4 p-4 rounded-xl border border-emerald-300/30 bg-emerald-500/10">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <svg className="w-5 h-5 text-emerald-300" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
+                          </svg>
+                          <span className="text-sm font-semibold text-emerald-100">
+                            {results.includeDividends 
+                              ? "💰 Dividends Received & Reinvested:" 
+                              : "💵 Dividend Cash Generated (sitting idle):"}
+                          </span>
+                        </div>
+                        <span className="text-lg font-bold text-emerald-50">
+                          ${results.analytics.backtest.dividendCash.toFixed(2)}
+                        </span>
+                      </div>
+                      {results.includeDividends && (
+                        <p className="text-xs text-emerald-200/80 mt-2">
+                          These dividends were automatically reinvested to buy additional shares, compounding your returns over time.
+                        </p>
+                      )}
+                      {!results.includeDividends && (
+                        <p className="text-xs text-emerald-200/80 mt-2">
+                          ⚠️ This cash is not included in the portfolio value above. Enable dividend reinvestment to see the full impact!
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Comparison: With vs Without Reinvestment (when OFF) */}
+                  {!results.includeDividends && results.analytics.backtest.shadowPortfolioValue && (
+                    <div className="mt-4 p-5 rounded-xl border-2 border-amber-300/40 bg-gradient-to-br from-amber-500/15 to-orange-500/10">
+                      <h4 className="text-base font-bold text-amber-100 mb-3 flex items-center gap-2">
+                        <span>⚡</span> Opportunity Cost Analysis
+                      </h4>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Current Strategy (No Reinvestment) */}
+                        <div className="rounded-lg bg-slate-800/60 p-4 border border-slate-600/40">
+                          <div className="text-xs text-slate-300 mb-1">❌ Without Reinvestment</div>
+                          <div className="space-y-2">
+                            <div>
+                              <div className="text-xs text-slate-400">Portfolio Value:</div>
+                              <div className="text-xl font-bold text-white">${results.analytics.backtest.finalValue}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-slate-400">+ Cash (sitting idle):</div>
+                              <div className="text-lg font-semibold text-slate-200">
+                                ${results.analytics.backtest.dividendCash.toFixed(2)}
+                              </div>
+                            </div>
+                            <div className="pt-2 border-t border-slate-600/50">
+                              <div className="text-xs text-slate-400">Total Value:</div>
+                              <div className="text-2xl font-bold text-amber-200">
+                                ${(parseFloat(results.analytics.backtest.finalValue) + results.analytics.backtest.dividendCash).toFixed(2)}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-slate-400">Total Return:</div>
+                              <div className="text-lg font-semibold text-slate-200">
+                                {((parseFloat(results.analytics.backtest.finalValue) + results.analytics.backtest.dividendCash - 10000) / 10000 * 100).toFixed(2)}%
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* With Reinvestment (Shadow Portfolio) */}
+                        <div className="rounded-lg bg-emerald-900/40 p-4 border-2 border-emerald-400/50 shadow-lg">
+                          <div className="text-xs text-emerald-200 mb-1 flex items-center gap-1">
+                            <span>✅ With Reinvestment</span>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/30 border border-emerald-400/40">Recommended</span>
+                          </div>
+                          <div className="space-y-2">
+                            <div>
+                              <div className="text-xs text-emerald-300/80">Portfolio Value:</div>
+                              <div className="text-xl font-bold text-emerald-50">
+                                ${results.analytics.backtest.shadowPortfolioValue.toFixed(2)}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-emerald-300/80">Dividends reinvested:</div>
+                              <div className="text-lg font-semibold text-emerald-100">
+                                ${results.analytics.backtest.dividendCashIfReinvested?.toFixed(2) || '0.00'}
+                              </div>
+                            </div>
+                            <div className="pt-2 border-t border-emerald-500/30">
+                              <div className="text-xs text-emerald-300/80">Total Value:</div>
+                              <div className="text-2xl font-bold text-emerald-50">
+                                ${results.analytics.backtest.shadowPortfolioValue.toFixed(2)}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-emerald-300/80">Total Return:</div>
+                              <div className="text-lg font-semibold text-emerald-100">
+                                {results.analytics.backtest.shadowTotalReturn?.toFixed(2)}%
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Impact Summary */}
+                      <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-400/30">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-red-200">💸 You're Missing Out:</span>
+                          <span className="text-xl font-bold text-red-100">
+                            ${(results.analytics.backtest.shadowPortfolioValue - (parseFloat(results.analytics.backtest.finalValue) + results.analytics.backtest.dividendCash)).toFixed(2)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-red-200/70 mt-1">
+                          By not reinvesting dividends, you're leaving money on the table due to lost compounding.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   
                   <div className="mt-4 text-sm text-white/70">
                     Worst Period: {results.analytics.backtest.maxDrawdownPeriod.start} to {results.analytics.backtest.maxDrawdownPeriod.end} ({results.analytics.backtest.maxDrawdown}% decline)
@@ -1080,9 +1374,16 @@ function RiskBudgetingPageContent() {
                   {results.correlationMatrix && (
                     <div className="rounded-xl border border-blue-300/30 bg-blue-500/10 p-4">
                       <h4 className="font-semibold text-blue-200 mb-3">Asset Correlation Matrix</h4>
-                      <p className="text-xs text-blue-100 mb-3">
+                      <p className="text-xs text-blue-100 mb-2">
                         Shows how assets move together. Lower correlations = better diversification.
                       </p>
+                      <div className="mb-3 rounded-lg border border-purple-300/30 bg-purple-500/10 p-2">
+                        <p className="text-xs text-purple-200">
+                          <strong>Note:</strong> Correlations calculated using price returns only (excluding dividends). 
+                          This provides a more accurate measure of how assets move together, as dividends are predictable 
+                          scheduled payments, not market volatility.
+                        </p>
+                      </div>
                       
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs">

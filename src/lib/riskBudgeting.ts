@@ -23,12 +23,43 @@ interface OptimizationResult {
 
 /**
  * Calculate returns from price series
+ * 
+ * TOTAL RETURN = PRICE RETURN + DIVIDEND YIELD
+ * 
+ * Price Return: (P₁ - P₀) / P₀
+ * Dividend Yield: D / P₀  (dividend paid between P₀ and P₁)
+ * 
+ * Example:
+ * Day 0: Price = $100
+ * Day 1: Price = $102, Dividend = $0.50
+ * 
+ * Price Return = (102 - 100) / 100 = 2.0%
+ * Dividend Yield = 0.50 / 100 = 0.5%
+ * Total Return = 2.0% + 0.5% = 2.5%
+ * 
+ * @param prices - Array of closing prices
+ * @param dividends - Array of dividends paid (0 if no dividend on that day)
+ * @returns Array of total returns (price return + dividend yield)
  */
-export function calculateReturns(prices: number[]): number[] {
+export function calculateReturns(prices: number[], dividends?: number[]): number[] {
   const returns: number[] = [];
-  for (let i = 1; i < prices.length; i++) {
-    returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
+  
+  // If no dividends provided, use price-only returns (backward compatible)
+  if (!dividends || dividends.length === 0) {
+    for (let i = 1; i < prices.length; i++) {
+      returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
+    }
+    return returns;
   }
+  
+  // Calculate total returns (price + dividend)
+  for (let i = 1; i < prices.length; i++) {
+    const priceReturn = (prices[i] - prices[i - 1]) / prices[i - 1];
+    const dividendYield = dividends[i] / prices[i - 1]; // Dividend yield based on previous day's price
+    const totalReturn = priceReturn + dividendYield;
+    returns.push(totalReturn);
+  }
+  
   return returns;
 }
 

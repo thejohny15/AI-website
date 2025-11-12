@@ -85,6 +85,11 @@ export interface BacktestResult {
   maxDrawdownPeriod: { start: string; end: string };
   rebalanceCount: number;
   rebalanceDates?: RebalanceEvent[];
+  dividendCash?: number;  // Total dividend cash with actual compounding
+  dividendCashIfReinvested?: number;  // What dividends WOULD BE if reinvested (when OFF)
+  missedDividendOpportunity?: number;  // Difference between reinvested and non-reinvested
+  shadowPortfolioValue?: number;  // Final value if dividends WERE reinvested (when OFF)
+  shadowTotalReturn?: number;  // Total return if dividends WERE reinvested (when OFF)
 }
 
 export interface RebalanceConfig {
@@ -100,6 +105,7 @@ export interface RebalanceConfig {
  * 
  * INPUTS:
  * - pricesMap: Historical prices for each asset (e.g., SPY: [100, 101, 102...])
+ * - dividendsMap: Historical dividends for each asset (0 for most days, >0 on ex-div dates)
  * - dates: Dates for each price point
  * - weights: Target allocation (e.g., [0.25, 0.25, 0.25, 0.25] = 25% each)
  * - tickers: Asset symbols (e.g., ["SPY", "LQD", "IEF", "DBC"])
@@ -113,6 +119,8 @@ export interface RebalanceConfig {
  * 
  * STEP 2: SIMULATE EACH DAY
  * - Calculate portfolio value = sum of (shares × current_price)
+ * - Add dividend cash = sum of (shares × dividend_per_share)
+ * - Reinvest dividends: buy more shares proportionally
  * - Calculate daily return = (today - yesterday) / yesterday
  * - Store values for later analysis
  * 
@@ -134,24 +142,28 @@ export interface RebalanceConfig {
  * - Proves the strategy works with real historical data
  * - Shows realistic performance including costs
  * - Measures both return AND risk
+ * - NOW INCLUDES DIVIDENDS for accurate total return
  * 
  * EXAMPLE OUTPUT:
- * Started with $10,000 → Ended with $12,500
- * That's 25% total return over 5 years
- * = 4.5% annualized return
- * Volatility was 11%, so Sharpe = 4.5/11 = 0.41
+ * Started with $10,000 → Ended with $13,200 (with dividends)
+ * vs $12,500 (price only)
+ * Dividends added 5.6% over 5 years!
  */
 export function runBacktest(
   pricesMap: Map<string, number[]>, // ticker -> price array
+  dividendsMap: Map<string, number[]>, // ticker -> dividend array (NEW!)
   dates: string[],
   weights: number[],
   tickers: string[],
   rebalanceConfig: RebalanceConfig,
-  initialValue: number = 10000
+  initialValue: number = 10000,
+  reinvestDividends: boolean = true  // NEW: control whether to reinvest or just track
 ): BacktestResult {
   const n = dates.length;
   const portfolioValues: number[] = [initialValue];
   const returns: number[] = [];
+  let totalDividendCash = 0;  // Track cumulative dividend cash with current strategy
+  let totalDividendCashIfReinvested = 0;  // Track what dividends would be if reinvested (shadow portfolio)
   
   // Initialize positions (number of shares for each asset)
   // 
@@ -173,6 +185,10 @@ export function runBacktest(
     return numShares;
   });
   
+  // Shadow portfolio: tracks share counts IF dividends were reinvested
+  // This runs in parallel ONLY when reinvestDividends=false to show opportunity cost
+  const shadowShares = !reinvestDividends ? [...shares] : [];  // Only initialize if needed
+  
   let rebalanceCount = 0;
   let lastRebalanceDate = dates[0];
   const rebalanceEvents: RebalanceEvent[] = [];
@@ -184,24 +200,75 @@ export function runBacktest(
   // 
   // FOR EACH DAY:
   // 1. Calculate portfolio value using current prices
-  // 2. Calculate return vs yesterday
-  // 3. Check if it's time to rebalance (affects NEXT day's shares)
+  // 2. Collect dividends (if any paid today)
+  // 3. Reinvest dividends proportionally
+  // 4. Calculate return vs yesterday (includes dividend impact)
+  // 5. Check if it's time to rebalance (affects NEXT day's shares)
   // 
   // Example Day 50:
   // - SPY is now $105 (was $100)
   // - We own 25 shares → worth $2,625 (was $2,500)
+  // - SPY pays $0.50 dividend today → receive $12.50 cash
+  // - Reinvest $12.50: buy 0.119 more shares at $105
   // - Do this for all assets, sum them up
-  // - Portfolio value = $10,450
-  // - Daily return = ($10,450 - $10,400) / $10,400 = 0.48%
+  // - Portfolio value = $10,462.50 (includes reinvested dividends)
+  // - Daily return = ($10,462.50 - $10,400) / $10,400 = 0.60%
   for (let t = 1; t < n; t++) {
-    // Calculate current portfolio value from shares × prices
+    // STEP 1: Calculate current portfolio value from shares × prices
     let portfolioValue = 0;
     tickers.forEach((ticker, i) => {
       const prices = pricesMap.get(ticker)!;
       portfolioValue += shares[i] * prices[t];
     });
     
-    // Calculate return BEFORE any rebalancing
+    // STEP 2: Collect dividends (and optionally reinvest)
+    // 
+    // DIVIDEND HANDLING:
+    // - ALWAYS track dividend cash received (for reporting)
+    // - IF reinvestDividends=true: buy more shares (compounds returns)
+    // - IF reinvestDividends=false: just track cash (doesn't affect portfolio value)
+    // - ALWAYS run shadow portfolio to show what WOULD happen with reinvestment
+    // 
+    // Example with reinvestment:
+    // - Own 100 shares of SPY at $400/share
+    // - SPY pays $1.50 dividend per share
+    // - Receive: 100 × $1.50 = $150 cash
+    // - Reinvest: Buy $150 / $400 = 0.375 more shares
+    // - New position: 100.375 shares
+    tickers.forEach((ticker, i) => {
+      const dividends = dividendsMap.get(ticker)!;
+      const dividendPerShare = dividends[t];
+      
+      if (dividendPerShare > 0) {
+        const prices = pricesMap.get(ticker)!;
+        
+        // ACTUAL PORTFOLIO: Track and optionally reinvest
+        const dividendCash = shares[i] * dividendPerShare;
+        totalDividendCash += dividendCash;  // Always track total cash received
+        
+        if (reinvestDividends) {
+          // Reinvest: buy more shares of this asset
+          const additionalShares = dividendCash / prices[t];
+          shares[i] += additionalShares;
+          // Note: We don't add dividendCash to portfolioValue here because
+          // the new shares are already reflected in the NEXT iteration's calculation
+          // Adding it here would double-count
+        }
+        // If not reinvesting, cash sits idle (not added to portfolio value)
+        
+        // SHADOW PORTFOLIO: Only track when NOT reinvesting (to show opportunity cost)
+        if (!reinvestDividends) {
+          const shadowDividendCash = shadowShares[i] * dividendPerShare;
+          totalDividendCashIfReinvested += shadowDividendCash;
+          
+          // Shadow portfolio always reinvests (to show compounding effect)
+          const shadowAdditionalShares = shadowDividendCash / prices[t];
+          shadowShares[i] += shadowAdditionalShares;
+        }
+      }
+    });
+    
+    // Calculate return BEFORE any rebalancing (now includes dividend impact)
     const dailyReturn = (portfolioValue - portfolioValues[t - 1]) / portfolioValues[t - 1];
     returns.push(dailyReturn);
     
@@ -245,16 +312,37 @@ export function runBacktest(
       const totalTransactionCost = portfolioValue * rebalanceConfig.transactionCost;
       const portfolioAfterCosts = portfolioValue - totalTransactionCost;
       
-      // Rebalance: buy new shares at target weights using the portfolio value after costs
+      // Rebalance ACTUAL portfolio: buy new shares at target weights using the portfolio value after costs
       tickers.forEach((ticker, i) => {
         const prices = pricesMap.get(ticker)!;
         const targetValue = portfolioAfterCosts * weights[i];  // Target dollar amount
         shares[i] = targetValue / prices[t];  // New share count
       });
       
-      // Update portfolio value to reflect the actual value after costs and rebalancing
-      // This ensures the next iteration starts with the correct baseline
-      portfolioValues[t] = portfolioAfterCosts;
+      // Important: Update the portfolio value for THIS day to reflect transaction costs
+      // The shares have been adjusted, so recalculate the portfolio value
+      portfolioValue = portfolioAfterCosts;
+      portfolioValues[portfolioValues.length - 1] = portfolioValue;  // Update the most recently added value
+      
+      // Also rebalance SHADOW portfolio (when tracking)
+      if (!reinvestDividends && shadowShares.length > 0) {
+        // Shadow portfolio also needs to rebalance at same times
+        let shadowPortfolioValueAtRebalance = 0;
+        tickers.forEach((ticker, i) => {
+          const prices = pricesMap.get(ticker)!;
+          shadowPortfolioValueAtRebalance += shadowShares[i] * prices[t];
+        });
+        
+        // Apply same transaction cost percentage
+        const shadowPortfolioAfterCosts = shadowPortfolioValueAtRebalance - (shadowPortfolioValueAtRebalance * rebalanceConfig.transactionCost);
+        
+        // Rebalance to same target weights
+        tickers.forEach((ticker, i) => {
+          const prices = pricesMap.get(ticker)!;
+          const targetValue = shadowPortfolioAfterCosts * weights[i];
+          shadowShares[i] = targetValue / prices[t];
+        });
+      }
       
       // Record rebalance event
       rebalanceEvents.push({
@@ -338,6 +426,27 @@ export function runBacktest(
   // Max DD = ($11k - $9k) / $11k = 18.2%
   const { maxDD, peakIndex, troughIndex } = calculateDrawdownFromValues(portfolioValues);
   
+  // Calculate dividend metrics
+  const missedOpportunity = !reinvestDividends 
+    ? totalDividendCashIfReinvested - totalDividendCash 
+    : 0;
+  
+  // Calculate shadow portfolio final value (if not reinvesting)
+  let shadowPortfolioValue: number | undefined;
+  let shadowTotalReturn: number | undefined;
+  
+  if (!reinvestDividends) {
+    // Calculate what the portfolio would be worth if dividends were reinvested
+    shadowPortfolioValue = 0;
+    tickers.forEach((ticker, i) => {
+      const prices = pricesMap.get(ticker)!;
+      const finalPrice = prices[prices.length - 1];
+      shadowPortfolioValue! += shadowShares[i] * finalPrice;
+    });
+    
+    shadowTotalReturn = ((shadowPortfolioValue - initialValue) / initialValue) * 100;
+  }
+  
   return {
     portfolioValues,
     returns,
@@ -354,6 +463,11 @@ export function runBacktest(
     },
     rebalanceCount,
     rebalanceDates: rebalanceEvents,
+    dividendCash: totalDividendCash,  // Actual cash received with current strategy
+    dividendCashIfReinvested: !reinvestDividends ? totalDividendCashIfReinvested : undefined,  // What it would be if reinvested
+    missedDividendOpportunity: !reinvestDividends ? missedOpportunity : undefined,  // Lost opportunity
+    shadowPortfolioValue: shadowPortfolioValue,  // What portfolio would be worth with reinvestment
+    shadowTotalReturn: shadowTotalReturn,  // What total return would be with reinvestment
   };
 }
 
@@ -564,22 +678,24 @@ export function findWorstPeriod(
  */
 export function compareStrategies(
   pricesMap: Map<string, number[]>,
+  dividendsMap: Map<string, number[]>,
   dates: string[],
   tickers: string[],
   riskBudgetWeights: number[],
-  rebalanceConfig: RebalanceConfig
+  rebalanceConfig: RebalanceConfig,
+  reinvestDividends: boolean = true
 ): {
   riskBudgeting: BacktestResult;
   equalWeight: BacktestResult;
   marketCap?: BacktestResult;
 } {
   // Risk Budgeting strategy (your optimized weights)
-  const riskBudgeting = runBacktest(pricesMap, dates, riskBudgetWeights, tickers, rebalanceConfig);
+  const riskBudgeting = runBacktest(pricesMap, dividendsMap, dates, riskBudgetWeights, tickers, rebalanceConfig, 10000, reinvestDividends);
   
   // Equal Weight strategy (naive 1/N allocation)
   // Simply divide money equally: 1/N for N assets
   const equalWeights = Array(tickers.length).fill(1 / tickers.length);
-  const equalWeight = runBacktest(pricesMap, dates, equalWeights, tickers, rebalanceConfig);
+  const equalWeight = runBacktest(pricesMap, dividendsMap, dates, equalWeights, tickers, rebalanceConfig, 10000, reinvestDividends);
   
   // Could add more strategies here:
   // - 60/40 (60% stocks, 40% bonds)

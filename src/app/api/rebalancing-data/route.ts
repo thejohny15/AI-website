@@ -25,11 +25,11 @@ export async function POST(req: NextRequest) {
     console.log('Weights:', weights);
     console.log('Period:', startDate, 'to', endDate);
     
-    // STEP 1: Fetch historical daily prices from Yahoo Finance
+    // STEP 1: Fetch historical daily prices and dividends from Yahoo Finance
     const historicalDataPromises = symbols.map(async (symbol: string) => {
       const period1 = Math.floor(new Date(startDate).getTime() / 1000);
       const period2 = Math.floor(new Date(endDate).getTime() / 1000);
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d`;
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d&events=div`;
       
       const response = await fetch(url, {
         headers: { 'User-Agent': 'Mozilla/5.0' }
@@ -37,20 +37,28 @@ export async function POST(req: NextRequest) {
       
       if (!response.ok) {
         console.warn(`Failed to fetch ${symbol}`);
-        return { symbol, prices: [] };
+        return { symbol, prices: [], dividends: [] };
       }
       
       const data = await response.json();
       const result = data.chart?.result?.[0];
       
-      if (!result) return { symbol, prices: [] };
+      if (!result) return { symbol, prices: [], dividends: [] };
       
       const timestamps = result.timestamp || [];
       const closes = result.indicators?.quote?.[0]?.close || [];
+      const dividendEvents = result.events?.dividends || {};
+      
+      // Create dividend map: timestamp -> dividend amount
+      const dividendMap = new Map<number, number>();
+      for (const [timestamp, divData] of Object.entries(dividendEvents)) {
+        dividendMap.set(parseInt(timestamp), (divData as any).amount || 0);
+      }
       
       const prices = timestamps.map((ts: number, i: number) => ({
         date: new Date(ts * 1000).toISOString().split('T')[0],
-        price: closes[i]
+        price: closes[i],
+        dividend: dividendMap.get(ts) || 0
       })).filter((p: any) => p.price != null);
       
       return { symbol, prices };
@@ -121,14 +129,20 @@ export async function POST(req: NextRequest) {
         let dailyPortfolioReturn = 0;
         let validAssets = 0;
         
-        // Calculate portfolio return for this day
+        // Calculate portfolio return for this day (including dividends)
         symbols.forEach((symbol: string, idx: number) => {
           const prices = priceData[symbol] || [];
-          const todayPrice = prices.find(p => p.date === date)?.price || prevPrices[symbol];
+          const todayData = prices.find(p => p.date === date);
+          const todayPrice = todayData?.price || prevPrices[symbol];
+          const dividend = todayData?.dividend || 0;
           const yesterdayPrice = prevPrices[symbol];
           
           if (todayPrice && yesterdayPrice && yesterdayPrice > 0) {
-            const assetReturn = (todayPrice - yesterdayPrice) / yesterdayPrice;
+            // Total return = price return + dividend yield
+            const priceReturn = (todayPrice - yesterdayPrice) / yesterdayPrice;
+            const dividendYield = dividend / yesterdayPrice;
+            const assetReturn = priceReturn + dividendYield;
+            
             dailyPortfolioReturn += currentWeights[idx] * assetReturn;
             validAssets++;
             

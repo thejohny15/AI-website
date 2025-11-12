@@ -28,13 +28,13 @@ interface AssetClass {
  * @param ticker - Stock ticker symbol
  * @param lookbackDays - Number of days to fetch (default 5 years)
  */
-async function fetchHistoricalData(ticker: string, lookbackDays: number = 365 * 5): Promise<{ prices: number[]; dates: string[] }> {
+async function fetchHistoricalData(ticker: string, lookbackDays: number = 365 * 5): Promise<{ prices: number[]; dates: string[]; dividends: number[] }> {
   try {
     // Calculate date range
     const endDate = Math.floor(Date.now() / 1000);
     const startDate = endDate - (lookbackDays * 24 * 60 * 60); // Convert days to seconds
     
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?period1=${startDate}&period2=${endDate}&interval=1d`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?period1=${startDate}&period2=${endDate}&interval=1d&events=div`;
     
     const response = await fetch(url, {
       headers: {
@@ -55,15 +55,26 @@ async function fetchHistoricalData(ticker: string, lookbackDays: number = 365 * 
     
     const timestamps = result.timestamp || [];
     const closes = result.indicators?.quote?.[0]?.close || [];
+    const dividendEvents = result.events?.dividends || {};
     
-    // Filter out null values and create aligned arrays
+    // Create dividend map: date -> dividend amount
+    const dividendMap = new Map<string, number>();
+    for (const [timestamp, divData] of Object.entries(dividendEvents)) {
+      const date = new Date(parseInt(timestamp) * 1000).toISOString().split('T')[0];
+      dividendMap.set(date, (divData as any).amount || 0);
+    }
+    
+    // Filter out null values and create aligned arrays with dividends
     const prices: number[] = [];
     const dates: string[] = [];
+    const dividends: number[] = [];
     
     for (let i = 0; i < closes.length; i++) {
       if (closes[i] !== null && closes[i] !== undefined) {
+        const date = new Date(timestamps[i] * 1000).toISOString().split('T')[0];
         prices.push(closes[i]);
-        dates.push(new Date(timestamps[i] * 1000).toISOString().split('T')[0]);
+        dates.push(date);
+        dividends.push(dividendMap.get(date) || 0);
       }
     }
     
@@ -71,7 +82,7 @@ async function fetchHistoricalData(ticker: string, lookbackDays: number = 365 * 
       throw new Error(`Insufficient data for ${ticker}: only ${prices.length} points`);
     }
     
-    return { prices, dates };
+    return { prices, dates, dividends };
   } catch (error: any) {
     console.error(`Error fetching data for ${ticker}:`, error.message);
     throw error;
@@ -82,8 +93,8 @@ async function fetchHistoricalData(ticker: string, lookbackDays: number = 365 * 
  * Align price series to common dates (intersection of all available dates)
  */
 function alignPriceSeries(
-  dataMap: Map<string, { prices: number[]; dates: string[] }>
-): Map<string, number[]> {
+  dataMap: Map<string, { prices: number[]; dates: string[]; dividends: number[] }>
+): { prices: Map<string, number[]>, dividends: Map<string, number[]> } {
   // Get all tickers
   const tickers = Array.from(dataMap.keys());
   
@@ -93,29 +104,36 @@ function alignPriceSeries(
     dateSets.every(set => set.has(date))
   ).sort();
   
-  // Create aligned price series
-  const alignedData = new Map<string, number[]>();
+  // Create aligned price and dividend series
+  const alignedPrices = new Map<string, number[]>();
+  const alignedDividends = new Map<string, number[]>();
   
   for (const ticker of tickers) {
     const data = dataMap.get(ticker)!;
     const dateToPrice = new Map(data.dates.map((d, i) => [d, data.prices[i]]));
-    const alignedPrices = commonDates.map(date => dateToPrice.get(date)!);
-    alignedData.set(ticker, alignedPrices);
+    const dateToDividend = new Map(data.dates.map((d, i) => [d, data.dividends[i]]));
+    
+    const pricesArray = commonDates.map(date => dateToPrice.get(date)!);
+    const dividendsArray = commonDates.map(date => dateToDividend.get(date) || 0);
+    
+    alignedPrices.set(ticker, pricesArray);
+    alignedDividends.set(ticker, dividendsArray);
   }
   
-  return alignedData;
+  return { prices: alignedPrices, dividends: alignedDividends };
 }
 
 export async function POST(req: NextRequest) {
   console.log("=== RISK BUDGETING API CALLED ===");
   
   try {
-    const { assetClasses, customBudgets, targetVolatility, lookbackPeriod = '5y' } = await req.json();
+    const { assetClasses, customBudgets, targetVolatility, lookbackPeriod = '5y', includeDividends = true } = await req.json();
     
     console.log("Received asset classes:", assetClasses);
     console.log("Custom budgets:", customBudgets);
     console.log("Target volatility:", targetVolatility);
     console.log("Lookback period:", lookbackPeriod);
+    console.log("Include dividends:", includeDividends);
     
     if (!Array.isArray(assetClasses) || assetClasses.length < 2) {
       return NextResponse.json(
@@ -171,13 +189,13 @@ export async function POST(req: NextRequest) {
     const historicalData = await Promise.all(dataPromises);
     console.log("Fetched data points:", historicalData.map(d => `${d.ticker}: ${d.prices.length} points`));
     
-    // Create a map of ticker -> {prices, dates}
+    // Create a map of ticker -> {prices, dates, dividends}
     const dataMap = new Map(
-      historicalData.map(d => [d.ticker, { prices: d.prices, dates: d.dates }])
+      historicalData.map(d => [d.ticker, { prices: d.prices, dates: d.dates, dividends: d.dividends }])
     );
     
-    // Align all price series to common dates
-    const alignedPrices = alignPriceSeries(dataMap);
+    // Align all price and dividend series to common dates
+    const { prices: alignedPrices, dividends: alignedDividends } = alignPriceSeries(dataMap);
     console.log("Aligned to common dates, points per asset:", Array.from(alignedPrices.values())[0].length);
     
     // Split data: first half for optimization, second half for backtest
@@ -188,35 +206,61 @@ export async function POST(req: NextRequest) {
     
     // Create optimization data (first N points)
     const optimizationPrices = new Map<string, number[]>();
+    const optimizationDividends = new Map<string, number[]>();
     for (const [ticker, prices] of alignedPrices.entries()) {
       optimizationPrices.set(ticker, prices.slice(0, optimizationPoints));
+      optimizationDividends.set(ticker, alignedDividends.get(ticker)!.slice(0, optimizationPoints));
     }
     
     // Create backtest data (remaining points)
     const backtestPrices = new Map<string, number[]>();
+    const backtestDividends = new Map<string, number[]>();
     for (const [ticker, prices] of alignedPrices.entries()) {
       backtestPrices.set(ticker, prices.slice(optimizationPoints));
+      backtestDividends.set(ticker, alignedDividends.get(ticker)!.slice(optimizationPoints));
     }
     
     // Calculate returns for each asset (using ONLY optimization period data)
-    const returnsData: number[][] = [];
+    // 
+    // IMPORTANT: We calculate TWO types of returns:
+    // 1. PRICE returns (no dividends) → for covariance/correlation/optimization
+    //    - Dividends are predictable, scheduled payments (not market volatility)
+    //    - Including them distorts correlation (creates artificial correlation on ex-div dates)
+    //    - Risk models should use pure price movements
+    // 
+    // 2. TOTAL returns (with dividends) → for expected return calculation
+    //    - This is what investors actually earn
+    //    - Used for performance metrics and Sharpe ratio
+    const priceReturnsData: number[][] = [];  // For risk/correlation (no dividends)
+    const totalReturnsData: number[][] = [];  // For expected return (with dividends)
     const meanReturns: number[] = [];
     const tickers: string[] = [];
     
     for (const asset of assetClasses) {
       const prices = optimizationPrices.get(asset.ticker)!;
-      const returns = calculateReturns(prices);
-      returnsData.push(returns);
+      const dividends = optimizationDividends.get(asset.ticker)!;
       
-      // Calculate annualized mean return
-      const meanReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length * 252;
+      // Price returns ONLY (for covariance matrix and optimization)
+      const priceReturns = calculateReturns(prices); // No dividends
+      priceReturnsData.push(priceReturns);
+      
+      // Total returns (for expected return calculation)
+      const totalReturns = includeDividends 
+        ? calculateReturns(prices, dividends)  // With dividends
+        : priceReturns;  // Same as price returns if dividends disabled
+      totalReturnsData.push(totalReturns);
+      
+      // Calculate annualized mean return using TOTAL returns
+      const meanReturn = totalReturns.reduce((sum, r) => sum + r, 0) / totalReturns.length * 252;
       meanReturns.push(meanReturn);
       tickers.push(asset.ticker);
     }
     
-    // Calculate covariance matrix
-    const covMatrix = calculateCovarianceMatrix(returnsData);
-    console.log("Covariance matrix calculated");
+    // Calculate covariance matrix using PRICE returns only
+    // This ensures correlation and risk calculations reflect true market movements,
+    // not artificial correlation from dividend payment schedules
+    const covMatrix = calculateCovarianceMatrix(priceReturnsData);
+    console.log("Covariance matrix calculated (using price returns only)");
     
     // Run optimization (ERC or custom risk budgeting)
     console.log(customBudgets ? "Running custom risk budgeting optimization..." : "Running ERC optimization...");
@@ -279,7 +323,7 @@ export async function POST(req: NextRequest) {
     
     const asOf = new Date().toISOString().split('T')[0];
     
-    // Calculate correlation matrix from covariance matrix
+    // Calculate correlation matrix from covariance matrix (using price returns)
     const correlationMatrix = calculateCorrelationMatrix(covMatrix);
     const avgCorrelation = calculateAverageCorrelation(correlationMatrix);
     
@@ -293,21 +337,25 @@ export async function POST(req: NextRequest) {
     
     const backtest = runBacktest(
       backtestPrices,  // Use only backtest period prices
+      backtestDividends,  // Always pass dividend data (for tracking cash)
       backtestDateArray,  // Use only backtest period dates
       optimization.weights,
       tickers,
       { frequency: 'quarterly', transactionCost: 0.001 },
-      10000
+      10000,
+      includeDividends  // Control reinvestment based on user preference
     );
     
     // Strategy comparison (also on backtest period only)
     console.log("Running strategy comparison...");
     const comparison = compareStrategies(
       backtestPrices,  // Use only backtest period prices
+      backtestDividends,  // Always pass dividend data
       backtestDateArray,  // Use only backtest period dates
       tickers,
       optimization.weights,
-      { frequency: 'quarterly', transactionCost: 0.001 }
+      { frequency: 'quarterly', transactionCost: 0.001 },
+      includeDividends  // Control reinvestment based on user preference
     );
     
     // Find worst crisis period
@@ -315,6 +363,50 @@ export async function POST(req: NextRequest) {
     
     console.log("=== RETURNING RESULTS ===");
     console.log("Metrics:", metrics);
+    
+    // Calculate dividend contribution
+    // Note: Dividend yield is calculated over the BACKTEST period specifically
+    // This matches the lookback period selected by the user and provides
+    // a realistic estimate based on recent historical data
+    let dividendContribution;
+    
+    // Calculate average dividend yield across assets using backtest period data
+    const avgDividendYields = tickers.map((ticker, i) => {
+      const divs = backtestDividends.get(ticker)!;
+      const prices = backtestPrices.get(ticker)!;
+      
+      // Calculate yield for each day where dividend was paid
+      let totalYield = 0;
+      let divPayments = 0;
+      
+      for (let idx = 1; idx < divs.length; idx++) {
+        if (divs[idx] > 0 && prices[idx - 1] > 0) {
+          totalYield += (divs[idx] / prices[idx - 1]);
+          divPayments++;
+        }
+      }
+      
+      // Annualize based on average yield per payment
+      // Most ETFs pay quarterly (4 times/year)
+      const avgYieldPerPayment = divPayments > 0 ? totalYield / divPayments : 0;
+      const paymentsPerYear = divPayments > 0 ? (divPayments / (divs.length / 252)) : 4; // Default to quarterly
+      const annualizedYield = avgYieldPerPayment * paymentsPerYear * 100;
+      
+      return annualizedYield;
+    });
+    
+    const portfolioDivYield = optimization.weights.reduce((sum, w, i) => {
+      return sum + w * avgDividendYields[i];
+    }, 0);
+    
+    dividendContribution = {
+      portfolioDividendYield: portfolioDivYield.toFixed(2),
+      assetYields: tickers.map((ticker, i) => ({
+        ticker,
+        yield: avgDividendYields[i].toFixed(2)
+      })),
+      calculatedOver: `${lookbackPeriod} backtest period`
+    };
     
     return NextResponse.json({
       weights,
@@ -326,6 +418,8 @@ export async function POST(req: NextRequest) {
         converged: optimization.converged,
         iterations: optimization.iterations,
       },
+      includeDividends,
+      dividendContribution,
       volatilityTargeting: targetVolatility ? {
         targetVolatility: (targetVolatility * 100).toFixed(2),
         naturalVolatility: (portfolioVol * 100).toFixed(2),
@@ -345,6 +439,11 @@ export async function POST(req: NextRequest) {
           portfolioValues: backtest.portfolioValues.map(v => parseFloat(v.toFixed(2))),
           dates: backtestDateArray,
           rebalanceDates: backtest.rebalanceDates,
+          dividendCash: backtest.dividendCash ? parseFloat(backtest.dividendCash.toFixed(2)) : undefined,
+          dividendCashIfReinvested: backtest.dividendCashIfReinvested ? parseFloat(backtest.dividendCashIfReinvested.toFixed(2)) : undefined,
+          missedDividendOpportunity: backtest.missedDividendOpportunity ? parseFloat(backtest.missedDividendOpportunity.toFixed(2)) : undefined,
+          shadowPortfolioValue: backtest.shadowPortfolioValue ? parseFloat(backtest.shadowPortfolioValue.toFixed(2)) : undefined,
+          shadowTotalReturn: backtest.shadowTotalReturn ? parseFloat(backtest.shadowTotalReturn.toFixed(2)) : undefined,
         },
         comparison: {
           riskBudgeting: {
