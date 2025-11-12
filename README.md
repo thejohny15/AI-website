@@ -148,9 +148,6 @@ vs Equal Weight:
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 📄 License
-
-This project is licensed under the MIT License.
 
 ## 🙏 Acknowledgments
 
@@ -165,3 +162,11 @@ For questions or feedback, please open an issue on GitHub.
 ---
 
 **Built with ❤️ using Next.js and modern portfolio theory**
+
+We use a rolling look-back window to estimate risk each time we rebalance.
+The user selects the window length (1y, 3y, or 5y). At every quarterly rebalance (end of Mar/Jun/Sep/Dec), we re-estimate 
+𝜇
+μ and 
+Σ
+Σ from the most recent look-back window (e.g., last 5 years), solve the ES risk-budgeting optimization with the AI-exposure cap, and update weights. The initial portfolio for the backtest is the optimization computed at the first rebalance date using the window immediately preceding it.
+For the current (“today”) portfolio, we apply the exact same process with a window that ends today (e.g., last 5 years up to today), then report the resulting weights.
