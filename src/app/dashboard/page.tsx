@@ -3,136 +3,129 @@
 import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
 import { useEffect, useMemo, useState } from "react";
-import { listPortfolios, removePortfolio, type Portfolio } from "@/lib/portfolioStore"; // <-- add remove
+import { listPortfolios, removePortfolio, type Portfolio, createPortfolio } from "@/lib/portfolioStore"; // <-- add remove
+import { useRouter } from "next/navigation";
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { user, isLoaded } = useUser();
   const userId = user?.id ?? "";
-  const [items, setItems] = useState<Portfolio[]>([]);
+
+  const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
 
   useEffect(() => {
-    if (!isLoaded || !userId) return;
-    const load = () => setItems(listPortfolios(userId));
-    load();
-    const onStorage = (e: StorageEvent) => {
-      if (e.key?.startsWith("portfolios:")) load();
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    if (isLoaded && userId) {
+      const allPortfolios = listPortfolios(userId);
+      setPortfolios(allPortfolios);
+    }
   }, [isLoaded, userId]);
 
   const sorted = useMemo(
-    () => [...items].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
-    [items]
+    () => [...portfolios]
+      .filter(p => p.proposalHoldings && p.proposalHoldings.length > 0)
+      .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
+    [portfolios]
   );
 
-  function handleDelete(id: string) {
-    if (!isLoaded || !userId) return;
+  function handleCreatePortfolio() {
+    if (!userId) return;
+    
+    const newPortfolio = createPortfolio(userId, { name: `Portfolio ${portfolios.length + 1}` });
+    setPortfolios(listPortfolios(userId));
+    router.push(`/portfolio/setup?pid=${newPortfolio.id}`);
+  }
+
+  function handleDeletePortfolio(id: string) {
+    if (!userId) return;
     const ok = confirm("Delete this portfolio? This cannot be undone.");
     if (!ok) return;
     removePortfolio(userId, id);
-    setItems(listPortfolios(userId));
+    setPortfolios(listPortfolios(userId));
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-[#EAF2FF] via-[#B8F2FF] to-[#DDE7FF] py-10">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-6 flex items-end justify-between gap-3">
-          <div>
-            <h1 className="text-3xl font-extrabold tracking-tight text-zinc-900">Your portfolios</h1>
-            <p className="text-sm text-zinc-600">Click a card to continue or view details.</p>
-          </div>
-          <Link
-            href="/portfolio/new"
-            className="rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-900 shadow-sm transition hover:shadow-md"
+    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-6">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-8 text-center">
+          <h1 className="text-4xl font-bold text-white drop-shadow-lg mb-3">
+            My Portfolios
+          </h1>
+          <p className="text-lg text-slate-200 font-medium">
+            Manage your investment portfolios and track performance
+          </p>
+        </div>
+
+        {/* Create New Portfolio Button */}
+        <div className="mb-6 text-center">
+          <button
+            onClick={handleCreatePortfolio}
+            className="rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-6 py-3 font-semibold shadow-lg hover:from-emerald-600 hover:to-emerald-700 transition-all"
           >
-            + Create portfolio
-          </Link>
+            + Create New Portfolio
+          </button>
         </div>
 
         {sorted.length === 0 ? (
-          <EmptyState />
+          <div className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-12 backdrop-blur-xl shadow-2xl text-center">
+            <h2 className="text-2xl font-bold text-white mb-3">
+              No portfolios yet
+            </h2>
+            <p className="text-slate-200 mb-6">
+              Create your first portfolio to get started with portfolio analysis
+            </p>
+            <button
+              onClick={handleCreatePortfolio}
+              className="rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-6 py-3 font-semibold shadow-lg hover:from-emerald-600 hover:to-emerald-700 transition-all"
+            >
+              + Create New Portfolio
+            </button>
+          </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {sorted.map((p) => (
-              <PortfolioCard key={p.id} p={p} onDelete={handleDelete} />
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {sorted.map((portfolio) => (
+              <div
+                key={portfolio.id}
+                className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl hover:border-slate-500/60 hover:bg-slate-800/70 transition-all flex flex-col"
+              >
+                <div className="flex-1">
+                  <h3 className="text-xl font-bold text-white mb-2">
+                    {portfolio.name}
+                  </h3>
+                  <p className="text-sm text-slate-300 mb-3">
+                    Created {new Date(portfolio.createdAt).toLocaleDateString()}
+                  </p>
+
+                  {/* Portfolio Status */}
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-semibold">
+                      ✓ Analysis Complete
+                    </span>
+                    <span className="text-sm text-slate-300">
+                      {portfolio.proposalHoldings?.length || 0} assets
+                    </span>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-col gap-2 mt-auto">
+                  <Link
+                    href={`/dashboard/${portfolio.id}`}
+                    className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-4 py-2 text-sm font-semibold shadow-lg hover:from-emerald-600 hover:to-emerald-700 transition-all"
+                  >
+                    View Details
+                  </Link>
+                  <button
+                    onClick={() => handleDeletePortfolio(portfolio.id)}
+                    className="inline-flex items-center justify-center rounded-xl bg-slate-700/50 border border-slate-600/50 text-red-300 px-4 py-2 text-sm font-semibold hover:bg-red-500/20 hover:border-red-500/50 transition-all"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         )}
       </div>
     </main>
-  );
-}
-
-function PortfolioCard({
-  p,
-  onDelete,
-}: {
-  p: Portfolio;
-  onDelete: (id: string) => void;
-}) {
-  const pid = encodeURIComponent(String(p.id));
-  const hasProposal = Array.isArray(p.proposalHoldings) && p.proposalHoldings.length > 0;
-  const href = hasProposal ? `/dashboard/${pid}` : `/portfolio/setup?pid=${pid}`;
-
-  return (
-    <Link
-      href={href}
-      className="relative block rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm transition hover:shadow-md"
-    >
-      <div className="mb-3 flex items-start justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-zinc-900">{p.name}</h3>
-          <p className="mt-1 text-sm text-zinc-600">
-            {p.riskTolerance} • {p.timeHorizon} • {p.currency}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Chip tone={hasProposal ? "ok" : "warn"}>
-            {hasProposal ? "Proposal ready" : "Incomplete"}
-          </Chip>
-          {/* Delete button (stops link navigation) */}
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onDelete(String(p.id));
-            }}
-            className="rounded-lg bg-rose-50 p-2 text-rose-600 transition hover:bg-rose-100"
-            aria-label="Delete portfolio"
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
-        </div>
-      </div>
-      <p className="text-xs text-zinc-500">Created {new Date(p.createdAt ?? Date.now()).toLocaleString()}</p>
-    </Link>
-  );
-}
-
-function Chip({ tone = "neutral", children }: { tone?: "neutral" | "ok" | "warn"; children: React.ReactNode }) {
-  const styles =
-    tone === "ok"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-      : tone === "warn"
-      ? "border-amber-200 bg-amber-50 text-amber-700"
-      : "border-zinc-200 bg-zinc-50 text-zinc-700";
-  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${styles}`}>{children}</span>;
-}
-
-function EmptyState() {
-  return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-center shadow-sm">
-      <h2 className="text-lg font-semibold text-zinc-900">No portfolios yet</h2>
-      <p className="mt-1 text-sm text-zinc-600">Create your first portfolio and let AI help you design it.</p>
-      <Link
-        href="/portfolio/new"
-        className="mt-4 inline-flex rounded-xl border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-900 shadow-sm transition hover:shadow-md"
-      >
-        + Create portfolio
-      </Link>
-    </div>
   );
 }

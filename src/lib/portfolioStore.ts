@@ -29,6 +29,11 @@ export type Portfolio = {
   proposalSummary?: any;         // string or object (Option 1/2)
   proposalHoldings?: Holding[];  // saved draft/final
 
+  // Rebalancing fields
+  rebalancingHistory?: string[]; // Array of ISO date strings when portfolio was rebalanced
+  rebalancingFrequency?: 'monthly' | 'quarterly' | 'annually'; // How often to rebalance
+  lastRebalanceDate?: string; // ISO date string of last rebalance
+
   // ...existing fields...
   currentHoldings?: { symbol: string; shares: number; buyPrice: number; note?: string }[];
 

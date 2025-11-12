@@ -190,16 +190,16 @@ function RiskBudgetingPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-[var(--bg-start)] to-[var(--bg-end)] text-white p-6">
+    <main className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-6">
       <div className="mx-auto max-w-5xl">
-        <h1 className="text-3xl font-extrabold">Risk Budgeting Portfolio</h1>
-        <p className="mt-2 text-white/90">
+        <h1 className="text-4xl font-bold text-white drop-shadow-lg mb-3">Risk Budgeting Portfolio</h1>
+        <p className="text-lg text-slate-200 font-medium">
           Institutional-grade multi-asset allocation using quantitative risk management
         </p>
 
         {/* Quick Strategy Presets */}
-        <div className="mt-6 rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur">
-          <h2 className="text-lg font-semibold mb-4">Quick Start: Choose a Strategy</h2>
+        <div className="mt-8 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
+          <h2 className="text-xl font-bold mb-5 text-white">Quick Start: Choose a Strategy</h2>
           <div className="grid gap-4 sm:grid-cols-3">
             {/* Conservative */}
             <button
@@ -212,16 +212,16 @@ function RiskBudgetingPageContent() {
                 // Don't force target volatility - let natural allocation work
                 setUseVolatilityTarget(false);
               }}
-              className="rounded-xl border-2 border-white/30 bg-white/5 p-4 text-left hover:bg-white/10 hover:border-emerald-400/50 transition group"
+              className="rounded-xl border-2 border-slate-600/50 bg-slate-800/40 p-5 text-left hover:bg-slate-700/60 hover:border-emerald-500/70 transition-all group shadow-lg"
             >
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">🛡️</span>
-                <span className="font-bold text-lg">Conservative</span>
+                <span className="font-bold text-lg text-white">Conservative</span>
               </div>
-              <p className="text-sm text-white/70 mb-3">
+              <p className="text-sm text-slate-200 mb-3 leading-relaxed">
                 Capital preservation focused. Low volatility, stable income.
               </p>
-              <div className="space-y-1 text-xs text-white/60">
+              <div className="space-y-1 text-xs text-slate-300">
                 <div>• 100% Fixed Income</div>
                 <div>• Government & Corporate Bonds</div>
                 <div>• Natural allocation (no leverage)</div>
@@ -240,16 +240,16 @@ function RiskBudgetingPageContent() {
                 // Don't force target volatility - let natural allocation work
                 setUseVolatilityTarget(false);
               }}
-              className="rounded-xl border-2 border-white/30 bg-white/5 p-4 text-left hover:bg-white/10 hover:border-blue-400/50 transition group"
+              className="rounded-xl border-2 border-slate-600/50 bg-slate-800/40 p-5 text-left hover:bg-slate-700/60 hover:border-blue-500/70 transition-all group shadow-lg"
             >
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">⚖️</span>
-                <span className="font-bold text-lg">Balanced</span>
+                <span className="font-bold text-lg text-white">Balanced</span>
               </div>
-              <p className="text-sm text-white/70 mb-3">
+              <p className="text-sm text-slate-200 mb-3 leading-relaxed">
                 Classic diversified approach. Growth with downside protection.
               </p>
-              <div className="space-y-1 text-xs text-white/60">
+              <div className="space-y-1 text-xs text-slate-300">
                 <div>• Stocks, Bonds & Commodities</div>
                 <div>• Risk-balanced allocation</div>
                 <div>• Natural allocation (no leverage)</div>
@@ -268,16 +268,16 @@ function RiskBudgetingPageContent() {
                 // Don't force target volatility - let natural allocation work
                 setUseVolatilityTarget(false);
               }}
-              className="rounded-xl border-2 border-white/30 bg-white/5 p-4 text-left hover:bg-white/10 hover:border-rose-400/50 transition group"
+              className="rounded-xl border-2 border-slate-600/50 bg-slate-800/40 p-5 text-left hover:bg-slate-700/60 hover:border-rose-500/70 transition-all group shadow-lg"
             >
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">🚀</span>
-                <span className="font-bold text-lg">Aggressive</span>
+                <span className="font-bold text-lg text-white">Aggressive</span>
               </div>
-              <p className="text-sm text-white/70 mb-3">
+              <p className="text-sm text-slate-200 mb-3 leading-relaxed">
                 Maximum growth potential. Higher risk, higher returns.
               </p>
-              <div className="space-y-1 text-xs text-white/60">
+              <div className="space-y-1 text-xs text-slate-300">
                 <div>• 100% Global Equities</div>
                 <div>• US, International & Emerging</div>
                 <div>• Natural allocation (no leverage)</div>
@@ -304,9 +304,9 @@ function RiskBudgetingPageContent() {
         )}
 
         {/* Asset Class Selection */}
-        <div className="mt-8 rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur">
-          <h2 className="text-xl font-semibold mb-4">Select Asset Classes</h2>
-          <p className="text-sm text-white/80 mb-4">
+        <div className="mt-8 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
+          <h2 className="text-xl font-bold mb-4 text-white">Select Asset Classes</h2>
+          <p className="text-sm text-slate-200 mb-4">
             Choose at least 2 asset classes. Each will contribute equally to portfolio risk.
             Start with the 4 core assets (already selected) or customize your allocation.
           </p>
@@ -314,7 +314,7 @@ function RiskBudgetingPageContent() {
           {/* Category-based selection */}
           {["Equity", "Fixed Income", "Alternatives"].map((category) => (
             <div key={category} className="mb-6 last:mb-0">
-              <h3 className="text-sm font-semibold text-white/90 uppercase tracking-wide mb-3">
+              <h3 className="text-sm font-semibold text-white uppercase tracking-wide mb-3">
                 {category}
               </h3>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -325,8 +325,8 @@ function RiskBudgetingPageContent() {
                       key={asset.id}
                       className={`flex items-start gap-3 rounded-xl border p-4 cursor-pointer transition ${
                         asset.enabled
-                          ? "border-white/40 bg-white/10"
-                          : "border-white/20 bg-white/5"
+                          ? "border-slate-400/60 bg-slate-700/50"
+                          : "border-slate-600/40 bg-slate-800/30"
                       }`}
                     >
                       <input
@@ -336,8 +336,8 @@ function RiskBudgetingPageContent() {
                         className="mt-1 h-5 w-5 rounded"
                       />
                       <div className="flex-1">
-                        <div className="font-semibold">{asset.name}</div>
-                        <div className="text-sm text-white/70">
+                        <div className="font-semibold text-white">{asset.name}</div>
+                        <div className="text-sm text-slate-300">
                           {asset.ticker} • {asset.description}
                         </div>
                       </div>
@@ -348,16 +348,16 @@ function RiskBudgetingPageContent() {
           ))}
           
           {/* Quick actions */}
-          <div className="mt-4 pt-4 border-t border-white/20 flex flex-wrap gap-2">
+          <div className="mt-4 pt-4 border-t border-slate-600/30 flex flex-wrap gap-2">
             <button
               onClick={() => setAssetClasses(prev => prev.map(a => ({ ...a, enabled: true })))}
-              className="text-sm px-3 py-1.5 rounded-lg bg-white/10 border border-white/30 hover:bg-white/20 transition"
+              className="text-sm px-3 py-1.5 rounded-lg bg-slate-700/50 border border-slate-600/50 hover:bg-slate-600/60 transition"
             >
               Select All
             </button>
             <button
               onClick={() => setAssetClasses(prev => prev.map(a => ({ ...a, enabled: false })))}
-              className="text-sm px-3 py-1.5 rounded-lg bg-white/10 border border-white/30 hover:bg-white/20 transition"
+              className="text-sm px-3 py-1.5 rounded-lg bg-slate-700/50 border border-slate-600/50 hover:bg-slate-600/60 transition"
             >
               Deselect All
             </button>
@@ -366,22 +366,22 @@ function RiskBudgetingPageContent() {
                 ...a, 
                 enabled: a.id === "equities" || a.id === "corporate" || a.id === "sovereign" || a.id === "commodities" 
               })))}
-              className="text-sm px-3 py-1.5 rounded-lg bg-white/10 border border-white/30 hover:bg-white/20 transition"
+              className="text-sm px-3 py-1.5 rounded-lg bg-slate-700/50 border border-slate-600/50 hover:bg-slate-600/60 transition"
             >
               Reset to Core 4
             </button>
-            <span className="ml-auto text-sm text-white/70 self-center">
+            <span className="ml-auto text-sm text-slate-200 self-center font-medium">
               {assetClasses.filter(a => a.enabled).length} selected
             </span>
           </div>
         </div>
 
         {/* Volatility Targeting Section */}
-        <div className="mt-6 rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur">
+        <div className="mt-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-xl font-semibold">Analysis Time Period</h2>
-              <p className="text-sm text-white/80 mt-1">
+              <h2 className="text-xl font-bold text-white">Analysis Time Period</h2>
+              <p className="text-sm text-slate-200 mt-1">
                 Historical data lookback for all calculations (returns, volatility, correlations, max drawdown)
               </p>
             </div>
@@ -399,12 +399,12 @@ function RiskBudgetingPageContent() {
                 className={`rounded-xl border-2 p-4 text-left transition ${
                   lookbackPeriod === period.value
                     ? 'border-emerald-400 bg-emerald-500/20'
-                    : 'border-white/20 bg-white/5 hover:bg-white/10'
+                    : 'border-slate-600/40 bg-slate-800/40 hover:bg-slate-700/50'
                 }`}
               >
                 <div className="font-semibold text-base mb-1">{period.label}</div>
-                <div className="text-xs text-white/70">{period.description}</div>
-                <div className="text-xs text-white/50 mt-1">{period.days}</div>
+                <div className="text-xs text-slate-300">{period.description}</div>
+                <div className="text-xs text-slate-400 mt-1">{period.days}</div>
               </button>
             ))}
           </div>
@@ -426,18 +426,18 @@ function RiskBudgetingPageContent() {
         </div>
 
         {/* Volatility Targeting Section */}
-        <div className="mt-6 rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur">
+        <div className="mt-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-xl font-semibold">Volatility Target</h2>
-              <p className="text-sm text-white/80 mt-1">
+              <h2 className="text-xl font-bold text-white">Volatility Target</h2>
+              <p className="text-sm text-slate-200 mt-1">
                 {useVolatilityTarget 
                   ? "Portfolio will be scaled to achieve your target volatility level"
                   : "Portfolio uses natural volatility from optimization (default)"}
               </p>
             </div>
             <label className="flex items-center gap-2 cursor-pointer">
-              <span className="text-sm text-white/90">Target Vol</span>
+              <span className="text-sm text-slate-200">Target Vol</span>
               <input
                 type="checkbox"
                 checked={useVolatilityTarget}
@@ -454,9 +454,9 @@ function RiskBudgetingPageContent() {
 
           {useVolatilityTarget && (
             <div className="space-y-4">
-              <div className="rounded-xl border border-white/20 bg-white/5 p-4">
+              <div className="rounded-xl border border-slate-500/30 bg-slate-700/30 p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-semibold">Target Annual Volatility</span>
+                  <span className="font-semibold text-white">Target Annual Volatility</span>
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
@@ -465,9 +465,9 @@ function RiskBudgetingPageContent() {
                       step="0.5"
                       value={targetVolatility || 10}
                       onChange={(e) => setTargetVolatility(parseFloat(e.target.value) || 10)}
-                      className="w-20 rounded-lg border border-white/30 bg-white/90 text-[var(--bg-end)] px-2 py-1 text-right outline-none focus:ring-2 focus:ring-white/30"
+                      className="w-20 rounded-lg border border-slate-400 bg-white text-slate-900 px-2 py-1 text-right outline-none focus:ring-2 focus:ring-emerald-400"
                     />
-                    <span className="text-white/90">%</span>
+                    <span className="text-slate-200">%</span>
                   </div>
                 </div>
                 
@@ -522,18 +522,18 @@ function RiskBudgetingPageContent() {
         </div>
 
         {/* Custom Risk Budgets Section */}
-        <div className="mt-6 rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur">
+        <div className="mt-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-xl font-semibold">Risk Budget Allocation</h2>
-              <p className="text-sm text-white/80 mt-1">
+              <h2 className="text-xl font-bold text-white">Risk Budget Allocation</h2>
+              <p className="text-sm text-slate-200 mt-1">
                 {useCustomBudgets 
                   ? "Specify how much risk each asset should contribute (must sum to 100%)"
                   : "Using equal risk contribution (default)"}
               </p>
             </div>
             <label className="flex items-center gap-2 cursor-pointer">
-              <span className="text-sm text-white/90">Custom</span>
+              <span className="text-sm text-slate-200">Custom</span>
               <input
                 type="checkbox"
                 checked={useCustomBudgets}
@@ -608,13 +608,13 @@ function RiskBudgetingPageContent() {
 
               {/* Quick presets */}
               <div className="space-y-2">
-                <div className="text-xs font-semibold text-white/80 uppercase tracking-wide">
+                <div className="text-xs font-semibold text-white uppercase tracking-wide">
                   Preset Strategies
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={distributeEvenly}
-                    className="text-sm px-3 py-1.5 rounded-lg bg-white/10 border border-white/30 hover:bg-white/20 transition"
+                    className="text-sm px-3 py-1.5 rounded-lg bg-slate-700/50 border border-slate-600/50 hover:bg-slate-600/60 transition"
                   >
                     📊 Equal (Default)
                   </button>
@@ -634,7 +634,7 @@ function RiskBudgetingPageContent() {
                       });
                       setCustomBudgets(newBudgets);
                     }}
-                    className="text-sm px-3 py-1.5 rounded-lg bg-white/10 border border-white/30 hover:bg-white/20 transition"
+                    className="text-sm px-3 py-1.5 rounded-lg bg-slate-700/50 border border-slate-600/50 hover:bg-slate-600/60 transition"
                   >
                     🛡️ Conservative Pension
                   </button>
@@ -653,7 +653,7 @@ function RiskBudgetingPageContent() {
                       });
                       setCustomBudgets(newBudgets);
                     }}
-                    className="text-sm px-3 py-1.5 rounded-lg bg-white/10 border border-white/30 hover:bg-white/20 transition"
+                    className="text-sm px-3 py-1.5 rounded-lg bg-slate-700/50 border border-slate-600/50 hover:bg-slate-600/60 transition"
                   >
                     ⚖️ Balanced (60/40)
                   </button>
@@ -677,7 +677,7 @@ function RiskBudgetingPageContent() {
                       });
                       setCustomBudgets(newBudgets);
                     }}
-                    className="text-sm px-3 py-1.5 rounded-lg bg-white/10 border border-white/30 hover:bg-white/20 transition"
+                    className="text-sm px-3 py-1.5 rounded-lg bg-slate-700/50 border border-slate-600/50 hover:bg-slate-600/60 transition"
                   >
                     🌍 All-Weather
                   </button>
@@ -696,7 +696,7 @@ function RiskBudgetingPageContent() {
                       });
                       setCustomBudgets(newBudgets);
                     }}
-                    className="text-sm px-3 py-1.5 rounded-lg bg-white/10 border border-white/30 hover:bg-white/20 transition"
+                    className="text-sm px-3 py-1.5 rounded-lg bg-slate-700/50 border border-slate-600/50 hover:bg-slate-600/60 transition"
                   >
                     🚀 Aggressive Growth
                   </button>
@@ -711,7 +711,7 @@ function RiskBudgetingPageContent() {
           <button
             onClick={handleGenerate}
             disabled={loading}
-            className="rounded-xl bg-white text-[var(--bg-end)] px-6 py-3 font-semibold hover:opacity-95 disabled:opacity-60 disabled:cursor-not-allowed"
+            className="rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-6 py-3 font-semibold shadow-lg hover:from-emerald-600 hover:to-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all"
           >
             {loading ? "Calculating..." : "Generate Portfolio"}
           </button>

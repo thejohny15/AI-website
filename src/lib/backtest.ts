@@ -165,13 +165,11 @@ export function runBacktest(
   // - Asset 4 (DBC @ $20):  Buy 25% × $10,000 / $20  = 125 shares
   // 
   // These share counts remain constant until we rebalance
-  let cashValue = initialValue;
   const shares = weights.map((w, i) => {
     const ticker = tickers[i];
     const prices = pricesMap.get(ticker)!;
     const targetValue = initialValue * w;  // Dollar amount to invest
     const numShares = targetValue / prices[0];  // Shares = dollars / price
-    cashValue -= targetValue;
     return numShares;
   });
   
@@ -187,7 +185,7 @@ export function runBacktest(
   // FOR EACH DAY:
   // 1. Calculate portfolio value using current prices
   // 2. Calculate return vs yesterday
-  // 3. Check if it's time to rebalance
+  // 3. Check if it's time to rebalance (affects NEXT day's shares)
   // 
   // Example Day 50:
   // - SPY is now $105 (was $100)
@@ -196,19 +194,18 @@ export function runBacktest(
   // - Portfolio value = $10,450
   // - Daily return = ($10,450 - $10,400) / $10,400 = 0.48%
   for (let t = 1; t < n; t++) {
-    // Calculate current portfolio value
-    // Sum up: shares × current_price for each asset
-    let portfolioValue = cashValue;
+    // Calculate current portfolio value from shares × prices
+    let portfolioValue = 0;
     tickers.forEach((ticker, i) => {
       const prices = pricesMap.get(ticker)!;
       portfolioValue += shares[i] * prices[t];
     });
     
-    portfolioValues.push(portfolioValue);
-    
-    // Calculate return (percentage change from yesterday)
+    // Calculate return BEFORE any rebalancing
     const dailyReturn = (portfolioValue - portfolioValues[t - 1]) / portfolioValues[t - 1];
     returns.push(dailyReturn);
+    
+    portfolioValues.push(portfolioValue);
     
     // Check if we need to rebalance
     // REBALANCING LOGIC:
@@ -244,18 +241,20 @@ export function runBacktest(
       const quarterEndValue = portfolioValue;
       const quarterlyReturn = ((quarterEndValue - quarterStartValue) / quarterStartValue) * 100;
       
-      // Step 1: Sell everything, convert to cash
-      cashValue = portfolioValue;
+      // Apply transaction cost ONCE to total portfolio value (0.1% of portfolio)
+      const totalTransactionCost = portfolioValue * rebalanceConfig.transactionCost;
+      const portfolioAfterCosts = portfolioValue - totalTransactionCost;
       
-      // Step 2: Buy back at target weights
-      // Apply transaction costs (realistic fee for trading)
+      // Rebalance: buy new shares at target weights using the portfolio value after costs
       tickers.forEach((ticker, i) => {
         const prices = pricesMap.get(ticker)!;
-        const targetValue = portfolioValue * weights[i];  // Target dollar amount
-        const cost = targetValue * rebalanceConfig.transactionCost;  // Trading fee
-        shares[i] = (targetValue - cost) / prices[t];  // New share count
-        cashValue -= targetValue;
+        const targetValue = portfolioAfterCosts * weights[i];  // Target dollar amount
+        shares[i] = targetValue / prices[t];  // New share count
       });
+      
+      // Update portfolio value to reflect the actual value after costs and rebalancing
+      // This ensures the next iteration starts with the correct baseline
+      portfolioValues[t] = portfolioAfterCosts;
       
       // Record rebalance event
       rebalanceEvents.push({

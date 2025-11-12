@@ -144,13 +144,25 @@ export async function POST(req: NextRequest) {
     // Fetch historical data for all assets
     console.log("Fetching historical data for:", assetClasses.map((a: AssetClass) => a.ticker));
     
-    // Calculate lookback period in days
-    const lookbackDays: Record<string, number> = {
+    // Calculate how much data we need
+    // 
+    // For TODAY'S portfolio display:
+    //   - Use lookbackPeriod (e.g., 5 years) of data to optimize
+    // 
+    // For BACKTEST of that portfolio:
+    //   - Need ANOTHER lookbackPeriod BEFORE the backtest start
+    //   - Example: 5-year backtest starting Nov 2020 needs data from Nov 2015
+    // 
+    // Total data needed: 2 × lookbackPeriod
+    const backtestPeriodDays: Record<string, number> = {
       '1y': 365,
       '3y': 365 * 3,
       '5y': 365 * 5,
     };
-    const daysToFetch = lookbackDays[lookbackPeriod as keyof typeof lookbackDays] || 365 * 5;
+    const lookbackDays = backtestPeriodDays[lookbackPeriod as keyof typeof backtestPeriodDays] || 365 * 5;
+    const daysToFetch = lookbackDays * 2; // Need 2x: one for initial optimization, one for backtest
+    
+    console.log(`Fetching ${daysToFetch} days total (${lookbackDays} for optimization + ${lookbackDays} for backtest)`);
     
     const dataPromises = assetClasses.map((asset: AssetClass) =>
       fetchHistoricalData(asset.ticker, daysToFetch).then(data => ({ ticker: asset.ticker, ...data }))
@@ -168,13 +180,31 @@ export async function POST(req: NextRequest) {
     const alignedPrices = alignPriceSeries(dataMap);
     console.log("Aligned to common dates, points per asset:", Array.from(alignedPrices.values())[0].length);
     
-    // Calculate returns for each asset
+    // Split data: first half for optimization, second half for backtest
+    const totalPoints = Array.from(alignedPrices.values())[0].length;
+    const optimizationPoints = Math.floor(totalPoints / 2); // Split 50/50
+    
+    console.log(`Splitting data: ${optimizationPoints} points for optimization, ${totalPoints - optimizationPoints} points for backtest`);
+    
+    // Create optimization data (first N points)
+    const optimizationPrices = new Map<string, number[]>();
+    for (const [ticker, prices] of alignedPrices.entries()) {
+      optimizationPrices.set(ticker, prices.slice(0, optimizationPoints));
+    }
+    
+    // Create backtest data (remaining points)
+    const backtestPrices = new Map<string, number[]>();
+    for (const [ticker, prices] of alignedPrices.entries()) {
+      backtestPrices.set(ticker, prices.slice(optimizationPoints));
+    }
+    
+    // Calculate returns for each asset (using ONLY optimization period data)
     const returnsData: number[][] = [];
     const meanReturns: number[] = [];
     const tickers: string[] = [];
     
     for (const asset of assetClasses) {
-      const prices = alignedPrices.get(asset.ticker)!;
+      const prices = optimizationPrices.get(asset.ticker)!;
       const returns = calculateReturns(prices);
       returnsData.push(returns);
       
@@ -255,30 +285,33 @@ export async function POST(req: NextRequest) {
     
     // Run backtest for advanced analytics
     console.log("Running historical backtest...");
-    const commonDates = Array.from(alignedPrices.values())[0].length;
-    const dateArray = historicalData[0].dates.slice(0, commonDates);
+    
+    // Use ONLY the backtest period (after optimization window)
+    const backtestDateArray = historicalData[0].dates.slice(optimizationPoints);
+    
+    console.log(`Backtest period: ${backtestDateArray[0]} to ${backtestDateArray[backtestDateArray.length - 1]} (${backtestDateArray.length} days)`);
     
     const backtest = runBacktest(
-      alignedPrices,
-      dateArray,
+      backtestPrices,  // Use only backtest period prices
+      backtestDateArray,  // Use only backtest period dates
       optimization.weights,
       tickers,
       { frequency: 'quarterly', transactionCost: 0.001 },
       10000
     );
     
-    // Strategy comparison
+    // Strategy comparison (also on backtest period only)
     console.log("Running strategy comparison...");
     const comparison = compareStrategies(
-      alignedPrices,
-      dateArray,
+      backtestPrices,  // Use only backtest period prices
+      backtestDateArray,  // Use only backtest period dates
       tickers,
       optimization.weights,
       { frequency: 'quarterly', transactionCost: 0.001 }
     );
     
     // Find worst crisis period
-    const worstPeriod = findWorstPeriod(backtest.portfolioValues, dateArray, 30);
+    const worstPeriod = findWorstPeriod(backtest.portfolioValues, backtestDateArray, 30);
     
     console.log("=== RETURNING RESULTS ===");
     console.log("Metrics:", metrics);
@@ -310,7 +343,7 @@ export async function POST(req: NextRequest) {
           maxDrawdownPeriod: backtest.maxDrawdownPeriod,
           rebalanceCount: backtest.rebalanceCount,
           portfolioValues: backtest.portfolioValues.map(v => parseFloat(v.toFixed(2))),
-          dates: dateArray,
+          dates: backtestDateArray,
           rebalanceDates: backtest.rebalanceDates,
         },
         comparison: {
