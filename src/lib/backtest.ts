@@ -214,67 +214,63 @@ export function runBacktest(
   // - Portfolio value = $10,462.50 (includes reinvested dividends)
   // - Daily return = ($10,462.50 - $10,400) / $10,400 = 0.60%
   for (let t = 1; t < n; t++) {
-    // STEP 1: Calculate current portfolio value from shares × prices
-    let portfolioValue = 0;
-    tickers.forEach((ticker, i) => {
-      const prices = pricesMap.get(ticker)!;
-      portfolioValue += shares[i] * prices[t];
-    });
+    // CORRECTED ORDER: Process dividends FIRST, then calculate portfolio value
+    // 
+    // TIMING: Ex-dividend convention
+    // - Dividend is paid at beginning of day t
+    // - If DRIP: buy shares at price[t-1] (yesterday's close)
+    // - Then portfolio is valued at price[t] (today's close)
     
-    // STEP 2: Collect dividends (and optionally reinvest)
-    // 
-    // DIVIDEND HANDLING:
-    // - ALWAYS track dividend cash received (for reporting)
-    // - IF reinvestDividends=true: buy more shares (compounds returns)
-    // - IF reinvestDividends=false: just track cash (doesn't affect portfolio value)
-    // - ALWAYS run shadow portfolio to show what WOULD happen with reinvestment
-    // 
-    // Example with reinvestment:
-    // - Own 100 shares of SPY at $400/share
-    // - SPY pays $1.50 dividend per share
-    // - Receive: 100 × $1.50 = $150 cash
-    // - Reinvest: Buy $150 / $400 = 0.375 more shares
-    // - New position: 100.375 shares
+    let cashFromDividends = 0; // Track uninvested cash
+    
+    // STEP 1: Process dividends (before price movement)
     tickers.forEach((ticker, i) => {
       const dividends = dividendsMap.get(ticker)!;
       const dividendPerShare = dividends[t];
       
       if (dividendPerShare > 0) {
-        const prices = pricesMap.get(ticker)!;
-        
-        // ACTUAL PORTFOLIO: Track and optionally reinvest
         const dividendCash = shares[i] * dividendPerShare;
-        totalDividendCash += dividendCash;  // Always track total cash received
+        totalDividendCash += dividendCash;
         
         if (reinvestDividends) {
-          // Reinvest: buy more shares of this asset
-          const additionalShares = dividendCash / prices[t];
+          // DRIP: Buy shares at yesterday's closing price
+          const prices = pricesMap.get(ticker)!;
+          const buyPrice = prices[t - 1];
+          const additionalShares = dividendCash / buyPrice;
           shares[i] += additionalShares;
-          // Note: We don't add dividendCash to portfolioValue here because
-          // the new shares are already reflected in the NEXT iteration's calculation
-          // Adding it here would double-count
+          // Cash is now converted to shares, not held separately
+        } else {
+          // Accrue cash without reinvesting
+          cashFromDividends += dividendCash;
         }
-        // If not reinvesting, cash sits idle (not added to portfolio value)
         
-        // SHADOW PORTFOLIO: Only track when NOT reinvesting (to show opportunity cost)
-        if (!reinvestDividends) {
+        // Shadow portfolio (only when dividends OFF)
+        if (!reinvestDividends && shadowShares.length > 0) {
           const shadowDividendCash = shadowShares[i] * dividendPerShare;
           totalDividendCashIfReinvested += shadowDividendCash;
-          
-          // Shadow portfolio always reinvests (to show compounding effect)
-          const shadowAdditionalShares = shadowDividendCash / prices[t];
+          const prices = pricesMap.get(ticker)!;
+          const buyPrice = prices[t - 1];
+          const shadowAdditionalShares = shadowDividendCash / buyPrice;
           shadowShares[i] += shadowAdditionalShares;
         }
       }
     });
     
-    // Calculate return BEFORE any rebalancing (now includes dividend impact)
-    const dailyReturn = (portfolioValue - portfolioValues[t - 1]) / portfolioValues[t - 1];
-    returns.push(dailyReturn);
+    // STEP 2: Calculate portfolio value at today's prices
+    // Value = shares × prices + any uninvested cash
+    let portfolioValue = cashFromDividends;
+    tickers.forEach((ticker, i) => {
+      const prices = pricesMap.get(ticker)!;
+      portfolioValue += shares[i] * prices[t];
+    });
     
+    // STEP 3: Calculate return (price-driven only, dividends already handled)
+    const previousValue = portfolioValues[portfolioValues.length - 1];
+    const dailyReturn = (portfolioValue - previousValue) / previousValue;
+    returns.push(dailyReturn);
     portfolioValues.push(portfolioValue);
     
-    // Check if we need to rebalance
+    // STEP 4: Check for rebalancing
     // REBALANCING LOGIC:
     // - If quarterly: happens every ~60 trading days
     // - Purpose: weights drift over time (winners grow, losers shrink)

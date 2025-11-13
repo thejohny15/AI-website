@@ -1227,14 +1227,31 @@ function RiskBudgetingPageContent() {
                       {/* Impact Summary */}
                       <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-400/30">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-red-200">💸 You're Missing Out:</span>
+                          <span className="text-sm font-semibold text-red-200">
+                            {(results.analytics.backtest.shadowPortfolioValue - (parseFloat(results.analytics.backtest.finalValue) + results.analytics.backtest.dividendCash)) > 0 
+                              ? "💸 You're Missing Out:" 
+                              : "⚠️ Interesting Market Dynamic:"}
+                          </span>
                           <span className="text-xl font-bold text-red-100">
-                            ${(results.analytics.backtest.shadowPortfolioValue - (parseFloat(results.analytics.backtest.finalValue) + results.analytics.backtest.dividendCash)).toFixed(2)}
+                            ${Math.abs(results.analytics.backtest.shadowPortfolioValue - (parseFloat(results.analytics.backtest.finalValue) + results.analytics.backtest.dividendCash)).toFixed(2)}
                           </span>
                         </div>
-                        <p className="text-xs text-red-200/70 mt-1">
-                          By not reinvesting dividends, you're leaving money on the table due to lost compounding.
-                        </p>
+                        {(results.analytics.backtest.shadowPortfolioValue - (parseFloat(results.analytics.backtest.finalValue) + results.analytics.backtest.dividendCash)) > 0 ? (
+                          <p className="text-xs text-red-200/70 mt-1">
+                            By not reinvesting dividends, you're leaving money on the table due to lost compounding.
+                          </p>
+                        ) : (
+                          <div className="text-xs text-amber-200/90 mt-2 space-y-1">
+                            <p className="font-semibold">
+                              📊 Sequence-of-Returns Risk: In this backtest period, holding cash actually preserved more value.
+                            </p>
+                            <p>
+                              When prices declined after dividend payments, reinvesting bought shares that subsequently lost value. 
+                              This is typical in bear markets (like 2022&apos;s bond decline). Over longer periods and full market cycles, 
+                              DRIP typically wins due to compounding, but timing matters!
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
