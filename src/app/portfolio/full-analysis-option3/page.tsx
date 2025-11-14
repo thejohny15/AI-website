@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState, Suspense } from "react";
 import { useUser } from "@clerk/nextjs";
 import { updatePortfolio, getPortfolio } from "@/lib/portfolioStore";
+import { CHART_COLORS, InfoIcon, SectionCard, StrategyCard, InfoBox } from "@/components/ui/portfolio-components";
 
 function RiskBudgetingPageContent() {
   const pid = useSearchParams().get("pid");
@@ -161,12 +162,15 @@ function RiskBudgetingPageContent() {
         expectedReturn: `${results.metrics.expectedReturn}%`,
         maxDrawdown: `${results.metrics.maxDrawdown}%`,
         dataAsOf: results.asOf,
+        lookbackPeriod: lookbackPeriod,
         optimization: {
           converged: results.optimization?.converged,
           iterations: results.optimization?.iterations,
         },
         customBudgets: useCustomBudgets ? customBudgets : undefined,
         volatilityTargeting: results.volatilityTargeting || undefined,
+        correlationMatrix: results.correlationMatrix || undefined,
+        avgCorrelation: results.avgCorrelation || undefined,
       };
 
       // Update the portfolio with the risk budgeting results
@@ -199,94 +203,68 @@ function RiskBudgetingPageContent() {
         </p>
 
         {/* Quick Strategy Presets */}
-        <div className="mt-8 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
+        <SectionCard className="mt-8">
           <h2 className="text-xl font-bold mb-5 text-white">Quick Start: Choose a Strategy</h2>
           <div className="grid gap-4 sm:grid-cols-3">
-            {/* Conservative */}
-            <button
+            <StrategyCard
+              icon="🛡️"
+              title="Conservative"
+              description="Capital preservation focused. Low volatility, stable income."
+              features={[
+                "100% Fixed Income",
+                "Government & Corporate Bonds",
+                "Natural allocation (no leverage)",
+                "Best for: Retirees, risk-averse"
+              ]}
+              borderColor="emerald"
               onClick={() => {
-                // Select conservative assets
                 setAssetClasses(prev => prev.map(a => ({
                   ...a,
                   enabled: ['sovereign', 'treasury-short', 'corporate', 'tips'].includes(a.id)
                 })));
-                // Don't force target volatility - let natural allocation work
                 setUseVolatilityTarget(false);
               }}
-              className="rounded-xl border-2 border-slate-600/50 bg-slate-800/40 p-5 text-left hover:bg-slate-700/60 hover:border-emerald-500/70 transition-all group shadow-lg"
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-2xl">🛡️</span>
-                <span className="font-bold text-lg text-white">Conservative</span>
-              </div>
-              <p className="text-sm text-slate-200 mb-3 leading-relaxed">
-                Capital preservation focused. Low volatility, stable income.
-              </p>
-              <div className="space-y-1 text-xs text-slate-300">
-                <div>• 100% Fixed Income</div>
-                <div>• Government & Corporate Bonds</div>
-                <div>• Natural allocation (no leverage)</div>
-                <div>• Best for: Retirees, risk-averse</div>
-              </div>
-            </button>
-
-            {/* Balanced */}
-            <button
+            />
+            <StrategyCard
+              icon="⚖️"
+              title="Balanced"
+              description="Classic diversified approach. Growth with downside protection."
+              features={[
+                "Stocks, Bonds & Commodities",
+                "Risk-balanced allocation",
+                "Natural allocation (no leverage)",
+                "Best for: Long-term investors"
+              ]}
+              borderColor="blue"
               onClick={() => {
-                // Select balanced assets
                 setAssetClasses(prev => prev.map(a => ({
                   ...a,
                   enabled: ['equities', 'corporate', 'sovereign', 'commodities'].includes(a.id)
                 })));
-                // Don't force target volatility - let natural allocation work
                 setUseVolatilityTarget(false);
               }}
-              className="rounded-xl border-2 border-slate-600/50 bg-slate-800/40 p-5 text-left hover:bg-slate-700/60 hover:border-blue-500/70 transition-all group shadow-lg"
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-2xl">⚖️</span>
-                <span className="font-bold text-lg text-white">Balanced</span>
-              </div>
-              <p className="text-sm text-slate-200 mb-3 leading-relaxed">
-                Classic diversified approach. Growth with downside protection.
-              </p>
-              <div className="space-y-1 text-xs text-slate-300">
-                <div>• Stocks, Bonds & Commodities</div>
-                <div>• Risk-balanced allocation</div>
-                <div>• Natural allocation (no leverage)</div>
-                <div>• Best for: Long-term investors</div>
-              </div>
-            </button>
-
-            {/* Aggressive */}
-            <button
+            />
+            <StrategyCard
+              icon="🚀"
+              title="Aggressive"
+              description="Maximum growth potential. Higher risk, higher returns."
+              features={[
+                "100% Global Equities",
+                "US, International & Emerging",
+                "Natural allocation (no leverage)",
+                "Best for: Young, growth-focused"
+              ]}
+              borderColor="rose"
               onClick={() => {
-                // Select aggressive assets
                 setAssetClasses(prev => prev.map(a => ({
                   ...a,
                   enabled: ['equities', 'smallcap', 'intl', 'reits', 'commodities'].includes(a.id)
                 })));
-                // Don't force target volatility - let natural allocation work
                 setUseVolatilityTarget(false);
               }}
-              className="rounded-xl border-2 border-slate-600/50 bg-slate-800/40 p-5 text-left hover:bg-slate-700/60 hover:border-rose-500/70 transition-all group shadow-lg"
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-2xl">🚀</span>
-                <span className="font-bold text-lg text-white">Aggressive</span>
-              </div>
-              <p className="text-sm text-slate-200 mb-3 leading-relaxed">
-                Maximum growth potential. Higher risk, higher returns.
-              </p>
-              <div className="space-y-1 text-xs text-slate-300">
-                <div>• 100% Global Equities</div>
-                <div>• US, International & Emerging</div>
-                <div>• Natural allocation (no leverage)</div>
-                <div>• Best for: Young, growth-focused</div>
-              </div>
-            </button>
+            />
           </div>
-        </div>
+        </SectionCard>
 
         {/* Strategy Summary Badge */}
         {(useCustomBudgets || useVolatilityTarget) && (
@@ -305,7 +283,7 @@ function RiskBudgetingPageContent() {
         )}
 
         {/* Asset Class Selection */}
-        <div className="mt-8 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
+        <SectionCard className="mt-8">
           <h2 className="text-xl font-bold mb-4 text-white">Select Asset Classes</h2>
           <p className="text-sm text-slate-200 mb-4">
             Choose at least 2 asset classes. Each will contribute equally to portfolio risk.
@@ -375,10 +353,10 @@ function RiskBudgetingPageContent() {
               {assetClasses.filter(a => a.enabled).length} selected
             </span>
           </div>
-        </div>
+        </SectionCard>
 
         {/* Return Calculation Toggle */}
-        <div className="mt-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
+        <SectionCard className="mt-6">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-xl font-bold text-white">Return Calculation</h2>
@@ -399,22 +377,17 @@ function RiskBudgetingPageContent() {
             </label>
           </div>
 
-          <div className="rounded-xl border border-emerald-300/30 bg-emerald-500/10 p-3">
-            <div className="flex items-start gap-2 text-xs text-emerald-100">
-              <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
-              <p>
-                <strong>Dividends Matter:</strong> ETFs like SPY (~1.5% yield), LQD (~3-4% yield), and TLT (~2-3% yield) 
-                pay regular dividends. Dividends are automatically reinvested to buy additional shares. 
-                Over 5 years, this can add 10-20% to total returns. 
-                {includeDividends 
-                  ? " ✓ We're including them for accurate performance measurement."
-                  : " ⚠️ Excluding dividends will underestimate true returns."}
-              </p>
-            </div>
-          </div>
-        </div>
+          <InfoBox variant="emerald">
+            <p>
+              <strong>Dividends Matter:</strong> ETFs like SPY (~1.5% yield), LQD (~3-4% yield), and TLT (~2-3% yield) 
+              pay regular dividends. Dividends are automatically reinvested to buy additional shares. 
+              Over 5 years, this can add 10-20% to total returns. 
+              {includeDividends 
+                ? " ✓ We're including them for accurate performance measurement."
+                : " ⚠️ Excluding dividends will underestimate true returns."}
+            </p>
+          </InfoBox>
+        </SectionCard>
 
         {/* Volatility Targeting Section */}
         <div className="mt-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
@@ -449,20 +422,15 @@ function RiskBudgetingPageContent() {
             ))}
           </div>
 
-          <div className="mt-4 rounded-xl border border-blue-300/30 bg-blue-500/10 p-3">
-            <div className="flex items-start gap-2 text-xs text-blue-100">
-              <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
-              <p>
-                <strong>Tip:</strong> Shorter periods (1y) capture recent market conditions. 
-                Longer periods (3y, 5y) provide more stable estimates but may include outdated correlations.
-                {lookbackPeriod === '1y' && ' Good balance of recency and statistical reliability.'}
-                {lookbackPeriod === '3y' && ' Captures full market cycle with recent regime.'}
-                {lookbackPeriod === '5y' && ' Most statistically robust, includes multiple market environments.'}
-              </p>
-            </div>
-          </div>
+          <InfoBox variant="blue">
+            <p>
+              <strong>Tip:</strong> Shorter periods (1y) capture recent market conditions. 
+              Longer periods (3y, 5y) provide more stable estimates but may include outdated correlations.
+              {lookbackPeriod === '1y' && ' Good balance of recency and statistical reliability.'}
+              {lookbackPeriod === '3y' && ' Captures full market cycle with recent regime.'}
+              {lookbackPeriod === '5y' && ' Most statistically robust, includes multiple market environments.'}
+            </p>
+          </InfoBox>
         </div>
 
         {/* Volatility Targeting Section */}
@@ -546,17 +514,12 @@ function RiskBudgetingPageContent() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-blue-300/30 bg-blue-500/10 p-3">
-                <div className="flex items-start gap-2 text-xs text-blue-100">
-                  <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
-                  <p>
-                    Volatility targeting scales portfolio exposure (via leverage or cash) to achieve your desired volatility level. 
-                    The risk budgeting remains unchanged, but position sizes are adjusted proportionally.
-                  </p>
-                </div>
-              </div>
+              <InfoBox variant="blue">
+                <p>
+                  Volatility targeting scales portfolio exposure (via leverage or cash) to achieve your desired volatility level. 
+                  The risk budgeting remains unchanged, but position sizes are adjusted proportionally.
+                </p>
+              </InfoBox>
             </div>
           )}
         </div>
@@ -824,179 +787,7 @@ function RiskBudgetingPageContent() {
               </div>
             )}
 
-            {/* Key Metrics */}
-            <div className="rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold">Portfolio Metrics</h2>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs px-3 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                    {lookbackPeriod === '1y' && '1 Year'}
-                    {lookbackPeriod === '3y' && '3 Years'}
-                    {lookbackPeriod === '5y' && '5 Years'}
-                  </span>
-                  {results.includeDividends && (
-                    <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      📈 With Dividends
-                    </span>
-                  )}
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                  </span>
-                  <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    Live Data
-                  </span>
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <MetricCard
-                  label="Portfolio Volatility"
-                  value={`${results.metrics.portfolioVolatility}%`}
-                />
-                <MetricCard
-                  label="Sharpe Ratio"
-                  value={results.metrics.sharpeRatio}
-                />
-                <MetricCard
-                  label="Expected Return"
-                  value={`${results.metrics.expectedReturn}%`}
-                />
-                <MetricCard
-                  label="Max Drawdown"
-                  value={`${results.metrics.maxDrawdown}%`}
-                />
-              </div>
-              
-              {/* Dividend Contribution Display */}
-              {results.dividendContribution && results.includeDividends && (
-                <div className="mt-4 rounded-xl border border-emerald-300/30 bg-emerald-500/10 p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="text-emerald-300 mt-0.5">
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-emerald-200 mb-2">Dividend Income (Reinvested)</h3>
-                      <div className="text-sm text-emerald-100 space-y-2">
-                        <div className="flex justify-between">
-                          <span>Portfolio Dividend Yield:</span>
-                          <span className="font-semibold text-emerald-50">{results.dividendContribution.portfolioDividendYield}% annually</span>
-                        </div>
-                        {results.analytics?.backtest?.dividendCash && (
-                          <div className="flex justify-between pt-2 border-t border-emerald-300/20">
-                            <span>Total Dividends Received & Reinvested:</span>
-                            <span className="font-bold text-emerald-50">${results.analytics.backtest.dividendCash.toFixed(2)}</span>
-                          </div>
-                        )}
-                        <div className="mt-3 pt-3 border-t border-emerald-300/20">
-                          <div className="text-xs text-emerald-200/80 mb-2">
-                            Yield by Asset (calculated over {results.dividendContribution.calculatedOver || 'backtest period'}):
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            {results.dividendContribution.assetYields.map((asset: any) => (
-                              <div key={asset.ticker} className="flex justify-between text-xs">
-                                <span className="text-emerald-200/70">{asset.ticker}:</span>
-                                <span className="font-semibold text-emerald-100">{asset.yield}%</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <p className="text-xs text-emerald-200/70 mt-3 pt-2 border-t border-emerald-300/10">
-                          💡 Yields fluctuate with price changes. Historical average shown.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Dividend Cash Display (when dividends NOT reinvested) */}
-              {!results.includeDividends && results.analytics?.backtest?.dividendCash && results.analytics.backtest.dividendCash > 0 && (
-                <div className="mt-4 rounded-xl border border-amber-300/30 bg-amber-500/10 p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="text-amber-300 mt-0.5">
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-amber-200 mb-2">💰 Dividend Cash Generated (Not Reinvested)</h3>
-                      <div className="text-sm text-amber-100 space-y-2">
-                        <p>
-                          Your portfolio generated <span className="font-bold text-lg text-amber-50">${results.analytics.backtest.dividendCash.toFixed(2)}</span> in 
-                          dividend cash over the backtest period.
-                        </p>
-                        <div className="mt-3 pt-3 border-t border-amber-300/20">
-                          <p className="text-xs text-amber-200/90">
-                            <strong>⚠️ Opportunity Cost:</strong> This cash is sitting idle in your account, not earning additional returns.
-                          </p>
-                          <p className="text-xs text-amber-200/80 mt-2">
-                            💡 <strong>Tip:</strong> Enable "Include Dividends" above to see how much more you'd earn by automatically 
-                            reinvesting this cash into more shares!
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Show dividend info even when OFF */}
-              {!results.includeDividends && results.dividendContribution && (
-                <div className="mt-4 rounded-xl border border-blue-300/30 bg-blue-500/10 p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="text-blue-300 mt-0.5">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-blue-200 text-sm mb-2">Portfolio Dividend Yield Information</h4>
-                      <div className="text-xs text-blue-100 space-y-1">
-                        <div className="flex justify-between">
-                          <span>Expected Annual Yield:</span>
-                          <span className="font-semibold">{results.dividendContribution.portfolioDividendYield}%</span>
-                        </div>
-                        {results.analytics?.backtest?.dividendCash && results.analytics.backtest.dividendCash > 0 && (
-                          <>
-                            <div className="flex justify-between mt-2 pt-2 border-t border-blue-300/20">
-                              <span>Cash Accumulated (not reinvested):</span>
-                              <span className="font-bold text-blue-50">${results.analytics.backtest.dividendCash.toFixed(2)}</span>
-                            </div>
-                            {results.analytics.backtest.dividendCashIfReinvested && (
-                              <>
-                                <div className="flex justify-between mt-1">
-                                  <span className="text-blue-200/70">If reinvested, would have generated:</span>
-                                  <span className="font-semibold text-blue-100">${results.analytics.backtest.dividendCashIfReinvested.toFixed(2)}</span>
-                                </div>
-                                {results.analytics.backtest.missedDividendOpportunity && results.analytics.backtest.missedDividendOpportunity > 0 && (
-                                  <div className="flex justify-between mt-1 p-2 rounded bg-amber-500/20 border border-amber-300/30">
-                                    <span className="font-semibold text-amber-200">💸 Missed opportunity:</span>
-                                    <span className="font-bold text-amber-100">${results.analytics.backtest.missedDividendOpportunity.toFixed(2)}</span>
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </>
-                        )}
-                        <p className="text-blue-200/70 mt-2">
-                          Based on {results.dividendContribution.calculatedOver || 'historical data'}. Enable dividend reinvestment to capture this income.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              <p className="mt-4 text-xs text-white/60">
-                Based on 5-year historical data as of {results.asOf}
-                {results.optimization && (
-                  <> • Optimization {results.optimization.converged ? 'converged' : 'completed'} in {results.optimization.iterations} iterations</>
-                )}
-              </p>
-            </div>
+
 
             {/* Allocation Table */}
             <div className="rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur">
@@ -1191,7 +982,7 @@ function RiskBudgetingPageContent() {
                         
                         {/* With Reinvestment (Shadow Portfolio) */}
                         <div className="rounded-lg bg-emerald-900/40 p-4 border-2 border-emerald-400/50 shadow-lg">
-                          <div className="text-xs text-emerald-200 mb-1 flex items-center gap-1">
+                          <div className="text-xs text-emerald-200 mb-1 flex items-center gap-1.5">
                             <span>✅ With Reinvestment</span>
                             <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/30 border border-emerald-400/40">Recommended</span>
                           </div>
@@ -1289,7 +1080,7 @@ function RiskBudgetingPageContent() {
                                       {change.beforeWeight}% → {change.afterWeight}%
                                     </span>
                                     <span className={`text-xs font-bold ${
-                                      parseFloat(change.drift) > 0 ? 'text-red-400' : 'text-emerald-400'
+                                      parseFloat(change.drift) > 0 ? 'text-emerald-400' : 'text-red-400'
                                     }`}>
                                       ({parseFloat(change.drift) > 0 ? '+' : ''}{change.drift}%)
                                     </span>
@@ -1524,12 +1315,6 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 function AllocationPieChart({ weights }: { weights: any[] }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const total = 360; // degrees in circle
-  const colors = [
-    "#10b981", "#3b82f6", "#f59e0b", "#ef4444", 
-    "#8b5cf6", "#ec4899", "#14b8a6", "#f97316",
-    "#06b6d4", "#84cc16", "#a855f7", "#eab308",
-    "#6366f1", "#22d3ee"
-  ];
   
   let currentAngle = 0;
   const segments = weights.map((w, i) => {
@@ -1540,7 +1325,7 @@ function AllocationPieChart({ weights }: { weights: any[] }) {
       percentage,
       startAngle: currentAngle,
       endAngle: currentAngle + angle,
-      color: colors[i % colors.length],
+      color: CHART_COLORS[i % CHART_COLORS.length],
     };
     currentAngle += angle;
     return segment;
@@ -1613,7 +1398,7 @@ function AllocationPieChart({ weights }: { weights: any[] }) {
             <div className="flex items-center gap-2">
               <div 
                 className="w-3 h-3 rounded-full" 
-                style={{ backgroundColor: colors[i % colors.length] }}
+                style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}
               />
               <span className="font-medium">{w.ticker}</span>
             </div>
@@ -1631,6 +1416,7 @@ function AllocationPieChart({ weights }: { weights: any[] }) {
  * HOW THIS CHART WORKS:
  * =====================
  * Displays portfolio value over time as an interactive line chart
+
  * 
  * INPUT DATA:
  * - values: Array of portfolio values [10000, 10050, 10100, ...]
@@ -1678,8 +1464,9 @@ function PerformanceChart({ values, dates }: { values: number[]; dates: string[]
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   
   // Sample data points for display (show every Nth point to avoid overcrowding)
-  // Example: 1,250 points → sample every 12 → 104 points
-  const sampleRate = Math.ceil(values.length / 100);
+  // With wider chart (1200px), we can show more points for smoother line
+  // Example: 1,250 points → sample every 5 → 250 points
+  const sampleRate = Math.ceil(values.length / 250);
   const sampledValues = values.filter((_, i) => i % sampleRate === 0);
   const sampledDates = dates.filter((_, i) => i % sampleRate === 0);
   
@@ -1688,10 +1475,16 @@ function PerformanceChart({ values, dates }: { values: number[]; dates: string[]
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
   const range = maxValue - minValue;
-  const padding = range * 0.1;  // 10% padding top and bottom
+  const padding = range * 0.1;
   
-  const height = 200;
-  const width = 800;
+  const height = 350;
+  const width = 1200;
+  const topMargin = 60;
+  const bottomMargin = 20;
+  const leftMargin = 20;
+  const rightMargin = 20;
+  const chartWidth = width - leftMargin - rightMargin;
+  const chartHeight = height - topMargin - bottomMargin;
   
   // Create SVG path
   // 
@@ -1699,9 +1492,9 @@ function PerformanceChart({ values, dates }: { values: number[]; dates: string[]
   // Transform portfolio values into SVG coordinates
   // 
   // X-axis (Time): 
-  //   - First point (i=0) → x=0 (left edge)
-  //   - Last point (i=99) → x=800 (right edge)
-  //   - Formula: x = (index / total) × width
+  //   - First point (i=0) → x=leftMargin (left edge with padding)
+  //   - Last point (i=99) → x=width-rightMargin (right edge with padding)
+  //   - Formula: x = leftMargin + (index / total) × chartWidth
   // 
   // Y-axis (Portfolio Value):
   //   - Flip coordinate system (SVG y=0 is top, but we want high values at top)
@@ -1712,8 +1505,9 @@ function PerformanceChart({ values, dates }: { values: number[]; dates: string[]
   //     - Normalized = ($12,000 - $9,500) / $3,000 = 0.833
   //     - Y = 200 - (0.833 × 200) = 33 pixels from top
   const points = sampledValues.map((value, i) => {
-    const x = (i / (sampledValues.length - 1)) * width;
-    const y = height - ((value - minValue + padding) / (range + 2 * padding)) * height;
+    const x = leftMargin + (i / (sampledValues.length - 1)) * chartWidth;
+    const normalizedValue = (value - minValue + padding) / (range + 2 * padding);
+    const y = topMargin + chartHeight * (1 - normalizedValue);
     return { x, y, value, date: sampledDates[i] };
   });
   
@@ -1734,10 +1528,10 @@ function PerformanceChart({ values, dates }: { values: number[]; dates: string[]
         {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
           <line
             key={ratio}
-            x1={0}
-            y1={height * ratio}
-            x2={width}
-            y2={height * ratio}
+            x1={leftMargin}
+            y1={topMargin + chartHeight * ratio}
+            x2={width - rightMargin}
+            y2={topMargin + chartHeight * ratio}
             stroke="rgba(255,255,255,0.1)"
             strokeWidth="1"
           />
@@ -1748,13 +1542,13 @@ function PerformanceChart({ values, dates }: { values: number[]; dates: string[]
           Purpose: Visual appeal, makes growth more obvious
           Implementation: 
           - Take the line path
-          - Add line to bottom-right (L width, height)
-          - Add line to bottom-left (L 0, height)
+          - Add line to bottom-right (L width-rightMargin, topMargin+chartHeight)
+          - Add line to bottom-left (L leftMargin, topMargin+chartHeight)
           - Close path (Z)
           - Fill with gradient (green fading to transparent)
         */}
         <path
-          d={`${pathData} L ${width} ${height} L 0 ${height} Z`}
+          d={`${pathData} L ${width - rightMargin} ${topMargin + chartHeight} L ${leftMargin} ${topMargin + chartHeight} Z`}
           fill="url(#gradient)"
           opacity="0.3"
         />
@@ -1839,45 +1633,24 @@ function PerformanceChart({ values, dates }: { values: number[]; dates: string[]
         </div>
       )}
       
-      {/* 
-        INVISIBLE INTERACTION OVERLAY
-        Purpose: Captures mouse movement to enable hover functionality
-        
-        Why separate SVG?
-        - Main SVG has the visual elements
-        - This SVG is purely for interaction
-        - Positioned absolutely on top
-        
-        Mouse tracking logic:
-        1. Get mouse X position relative to chart
-        2. Convert to 0-800 range (SVG coordinates)
-        3. Find closest data point: x / width × total_points
-        4. Update hoveredIndex state
-        5. This triggers re-render with tooltip and hover point
-        
-        Example:
-        - Mouse at 400px on 800px wide chart
-        - X ratio = 400/800 = 0.5 (halfway)
-        - With 100 points: 0.5 × 100 = point 50
-        - Show tooltip for 50th data point
-        
-        Mouse leave: Clear hoveredIndex, hide tooltip
-      */}
-      <svg
-        width="100%"
-        height={height}
-        viewBox={`0 0 ${width} ${height}`}
-        className="absolute top-0 left-0"
+      {/* Invisible hover overlay */}
+      <div
+        className="absolute inset-0"
+        style={{ cursor: 'crosshair' }}
         onMouseMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
-          const x = ((e.clientX - rect.left) / rect.width) * width;
-          const closestIndex = Math.round((x / width) * (points.length - 1));
+          const x = e.clientX - rect.left;
+          const relativeX = (x / rect.width) * width;
+          
+          // Account for left margin and map to data points
+          const chartX = relativeX - leftMargin;
+          const normalizedX = Math.max(0, Math.min(1, chartX / chartWidth));
+          const closestIndex = Math.round(normalizedX * (points.length - 1));
+          
           setHoveredIndex(Math.max(0, Math.min(points.length - 1, closestIndex)));
         }}
         onMouseLeave={() => setHoveredIndex(null)}
-      >
-        <rect width={width} height={height} fill="transparent" />
-      </svg>
+      />
       
       {/* Y-axis labels */}
       <div className="mt-2 flex justify-between text-xs text-white/70">
@@ -1891,12 +1664,6 @@ function PerformanceChart({ values, dates }: { values: number[]; dates: string[]
 
 function RiskContributionChart({ weights }: { weights: any[] }) {
   const maxRC = Math.max(...weights.map((w: any) => parseFloat(w.riskContribution)));
-  const colors = [
-    "#10b981", "#3b82f6", "#f59e0b", "#ef4444", 
-    "#8b5cf6", "#ec4899", "#14b8a6", "#f97316",
-    "#06b6d4", "#84cc16", "#a855f7", "#eab308",
-    "#6366f1", "#22d3ee"
-  ];
 
   return (
     <div className="space-y-3">
@@ -1915,7 +1682,7 @@ function RiskContributionChart({ weights }: { weights: any[] }) {
                 className="h-full rounded-lg transition-all duration-500 flex items-center justify-end pr-2"
                 style={{ 
                   width: `${barWidth}%`,
-                  backgroundColor: colors[i % colors.length]
+                  backgroundColor: CHART_COLORS[i % CHART_COLORS.length]
                 }}
               >
                 {barWidth > 20 && (

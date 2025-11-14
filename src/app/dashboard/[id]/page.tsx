@@ -160,13 +160,15 @@ export default function PortfolioDetail() {
             symbols,
             weights,
             startDate: new Date(p!.createdAt).toISOString().split('T')[0],
-            endDate: new Date().toISOString().split('T')[0]
+            endDate: new Date().toISOString().split('T')[0],
+            includeCorrelations: true // Request correlation data
           })
         });
         
         if (!response.ok) throw new Error('Failed to fetch since creation data');
         
         const data = await response.json();
+        console.log('Rebalancing data received:', data); // Debug log
         setSinceCreationRebalancingData(data.rebalancingData || []);
       } catch (error) {
         console.error('Error fetching since creation data:', error);
@@ -255,6 +257,29 @@ export default function PortfolioDetail() {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Dividend Information */}
+        {p.proposalSummary && (
+          <div className="mb-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-2xl font-bold text-white">Return Calculation</h2>
+                <p className="text-sm text-slate-300 mt-1">
+                  All returns include dividend yields (automatically reinvested)
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+              <p className="text-sm text-emerald-100">
+                <strong>Dividends Matter:</strong> ETFs like SPY (~1.5% yield), LQD (~3-4% yield), and TLT (~2-3% yield) 
+                pay regular dividends. Dividends are automatically reinvested to buy additional shares. 
+                Over 5 years, this can add 10-20% to total returns. All performance charts and metrics on this page 
+                include dividend reinvestment for accurate performance measurement.
+              </p>
             </div>
           </div>
         )}
@@ -401,6 +426,161 @@ export default function PortfolioDetail() {
               />
             </div>
 
+            {/* Opportunity Cost Analysis */}
+            <div className="mb-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
+              <h2 className="text-2xl font-bold text-white mb-4">Dividend Reinvestment Analysis</h2>
+              
+              {sinceCreationRebalancingData.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="mb-4">
+                    <svg className="w-16 h-16 mx-auto text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-xl font-semibold text-white mb-2">Analysis Pending</h3>
+                  <p className="text-slate-300 mb-4">
+                    Dividend analysis will be available after the first quarterly rebalance
+                  </p>
+                  <p className="text-sm text-slate-400">
+                    Your portfolio rebalances quarterly. The first rebalance will occur on the first day of the next quarter,
+                    at which point you will see detailed dividend reinvestment analysis and comparison data.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].dividendCash ? (
+                <div className="mb-6 p-4 rounded-xl border border-emerald-300/30 bg-emerald-500/10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-5 h-5 text-emerald-300" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
+                      </svg>
+                      <span className="text-sm font-semibold text-emerald-100">
+                        💰 Total Dividends Received & Reinvested:
+                      </span>
+                    </div>
+                    <span className="text-lg font-bold text-emerald-50">
+                      ${sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].dividendCash?.toFixed(2) || '0.00'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-emerald-200/80 mt-2">
+                    These dividends were automatically reinvested to buy additional shares, compounding your returns over time.
+                  </p>
+                </div>
+                ) : (
+                  <p className="text-slate-400 mb-4">No dividend data available yet</p>
+                )}
+
+                {/* Comparison: With vs Without Reinvestment */}
+                {sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].shadowPortfolioValue && (
+                  <div className="p-5 rounded-xl border-2 border-amber-300/40 bg-gradient-to-br from-amber-500/15 to-orange-500/10">
+                    <h4 className="text-base font-bold text-amber-100 mb-3 flex items-center gap-2">
+                      <span>⚡</span> Opportunity Cost Analysis
+                    </h4>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Current Strategy (With Reinvestment) */}
+                      <div className="rounded-lg bg-emerald-900/40 p-4 border-2 border-emerald-400/50 shadow-lg">
+                        <div className="text-xs text-emerald-200 mb-1 flex items-center gap-1.5">
+                          <span>✅ With Reinvestment</span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/30 border border-emerald-400/40">Current</span>
+                        </div>
+                        <div className="space-y-2">
+                          <div>
+                            <div className="text-xs text-emerald-300/80">Portfolio Value:</div>
+                            <div className="text-xl font-bold text-emerald-50">
+                              ${parseFloat(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].portfolioValue).toFixed(2)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-emerald-300/80">Dividends reinvested:</div>
+                            <div className="text-lg font-semibold text-emerald-100">
+                              ${sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].dividendCash?.toFixed(2) || '0.00'}
+                            </div>
+                          </div>
+                          <div className="pt-2 border-t border-emerald-500/30">
+                            <div className="text-xs text-emerald-300/80">Total Value:</div>
+                            <div className="text-2xl font-bold text-emerald-50">
+                              ${parseFloat(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].portfolioValue).toFixed(2)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-emerald-300/80">Total Return:</div>
+                            <div className="text-lg font-semibold text-emerald-100">
+                              {((parseFloat(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].portfolioValue) - 10000) / 10000 * 100).toFixed(2)}%
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Without Reinvestment (Shadow Portfolio) */}
+                      <div className="rounded-lg bg-slate-800/60 p-4 border border-slate-600/40">
+                        <div className="text-xs text-slate-300 mb-1">❌ Without Reinvestment</div>
+                        <div className="space-y-2">
+                          <div>
+                            <div className="text-xs text-slate-400">Portfolio Value:</div>
+                            <div className="text-xl font-bold text-white">
+                              ${(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].shadowPortfolioValue - sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].shadowDividendCash).toFixed(2)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-400">+ Cash (sitting idle):</div>
+                            <div className="text-lg font-semibold text-slate-200">
+                              ${sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].shadowDividendCash?.toFixed(2) || '0.00'}
+                            </div>
+                          </div>
+                          <div className="pt-2 border-t border-slate-600/50">
+                            <div className="text-xs text-slate-400">Total Value:</div>
+                            <div className="text-2xl font-bold text-amber-200">
+                              ${sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].shadowPortfolioValue?.toFixed(2)}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-slate-400">Total Return:</div>
+                            <div className="text-lg font-semibold text-slate-200">
+                              {((sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].shadowPortfolioValue - 10000) / 10000 * 100).toFixed(2)}%
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Impact Summary */}
+                    <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-400/30">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-red-200">
+                          {(parseFloat(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].portfolioValue) - sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].shadowPortfolioValue) > 0 
+                            ? "✅ Benefit of Reinvestment:" 
+                            : "⚠️ Market Timing Effect:"}
+                        </span>
+                        <span className="text-xl font-bold text-red-100">
+                          ${Math.abs(parseFloat(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].portfolioValue) - sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].shadowPortfolioValue).toFixed(2)}
+                        </span>
+                      </div>
+                      {(parseFloat(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].portfolioValue) - sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].shadowPortfolioValue) > 0 ? (
+                        <p className="text-xs text-emerald-200/80 mt-1">
+                          Dividend reinvestment added value through compounding returns.
+                        </p>
+                      ) : (
+                        <div className="text-xs text-amber-200/90 mt-2 space-y-1">
+                          <p className="font-semibold">
+                            📊 Sequence-of-Returns Risk: In this period, holding cash actually preserved more value.
+                          </p>
+                          <p>
+                            When prices declined after dividend payments, reinvesting bought shares that subsequently lost value. 
+                            This is typical in bear markets. Over longer periods and full market cycles, 
+                            reinvestment typically wins due to compounding, but timing matters!
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                </>
+              )}
+              </div>
+
             {/* Portfolio Rebalancing Timeline (Since Creation) */}
             {loadingSinceCreation ? (
               <div className="mb-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl text-center">
@@ -469,9 +649,43 @@ export default function PortfolioDetail() {
               </div>
             )}
 
+            {/* Portfolio Allocation Pie Chart */}
+            <div className="mb-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
+              <h2 className="text-2xl font-bold text-white mb-4">Current Portfolio Allocation</h2>
+              {sinceCreationRebalancingData.length > 0 ? (
+                <>
+                  <p className="text-sm text-slate-300 mb-4">
+                    As of {new Date(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].date).toLocaleDateString()} (last rebalance)
+                  </p>
+                  <AllocationPieChart weights={sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].weightChanges.map((wc: any) => ({
+                    ticker: wc.symbol,
+                    name: wc.symbol,
+                    weight: wc.afterWeight,
+                    riskContribution: wc.afterWeight
+                  }))} />
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-slate-300 mb-4">Target allocation (no rebalancing data yet)</p>
+                  <AllocationPieChart weights={p.proposalHoldings.map(h => ({
+                    ticker: h.symbol,
+                    name: h.symbol,
+                    weight: h.weight.toString(),
+                    riskContribution: h.weight.toString()
+                  }))} />
+                </>
+              )}
+            </div>
+
             {/* Holdings Table */}
             <div className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
-              <h2 className="text-2xl font-bold text-white mb-4">Portfolio Holdings</h2>
+              <h2 className="text-2xl font-bold text-white mb-4">Current Portfolio Holdings</h2>
+              {sinceCreationRebalancingData.length > 0 && (
+                <p className="text-sm text-slate-300 mb-4">
+                  As of {new Date(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].date).toLocaleDateString()} • 
+                  Portfolio Value: ${sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].portfolioValue}
+                </p>
+              )}
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
@@ -482,7 +696,14 @@ export default function PortfolioDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {p.proposalHoldings.map((h, i) => (
+                  {(sinceCreationRebalancingData.length > 0 
+                    ? sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].weightChanges.map((wc: any) => ({
+                        symbol: wc.symbol,
+                        weight: parseFloat(wc.afterWeight),
+                        note: `Drift: ${wc.drift}% • Rebalanced from ${wc.beforeWeight}%`
+                      }))
+                    : p.proposalHoldings
+                  ).map((h: any, i: number) => (
                     <tr key={i} className="border-b border-slate-600/20">
                       <td className="py-3 pr-6 font-semibold text-white">{h.symbol}</td>
                       <td className="py-3 pr-6 text-right font-semibold text-white">{h.weight}%</td>
@@ -493,6 +714,78 @@ export default function PortfolioDetail() {
               </table>
             </div>
           </div>
+
+            {/* Correlation Matrix */}
+            {p.proposalSummary && (
+              <div className="mt-8 mb-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
+                <h2 className="text-2xl font-bold text-white mb-4">Asset Correlation Matrix</h2>
+                <p className="text-sm text-slate-300 mb-4">
+                  Shows how assets move together. Lower correlations = better diversification.
+                </p>
+                <div className="mb-4 rounded-lg border border-purple-500/30 bg-purple-500/10 p-3">
+                  <p className="text-xs text-purple-200">
+                    <strong>Note:</strong> Correlations calculated using price returns only (excluding dividends). 
+                    This provides a more accurate measure of how assets move together, as dividends are predictable 
+                    scheduled payments, not market volatility.
+                  </p>
+                </div>
+                
+                {loadingSinceCreation ? (
+                  <div className="text-center py-8">
+                    <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-slate-400 border-t-purple-500"></div>
+                    <p className="text-sm text-slate-300 mt-2">Loading correlation data...</p>
+                  </div>
+                ) : (() => {
+                  const hasRebalanceData = sinceCreationRebalancingData.length > 0;
+                  const lastRebalance = hasRebalanceData ? sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1] : null;
+                  const hasRebalanceCorr = lastRebalance?.correlationMatrix;
+                  const hasSummaryCorr = p.proposalSummary?.correlationMatrix;
+                  
+                  console.log('Correlation Debug:', {
+                    hasRebalanceData,
+                    lastRebalance,
+                    hasRebalanceCorr,
+                    hasSummaryCorr,
+                    proposalSummary: p.proposalSummary
+                  });
+                  
+                  if (hasRebalanceCorr) {
+                    return (
+                      <>
+                        <p className="text-sm text-slate-300 mb-4">
+                          Updated at last rebalance: {new Date(lastRebalance.date).toLocaleDateString()}
+                        </p>
+                        <CorrelationMatrixDisplay 
+                          holdings={p.proposalHoldings} 
+                          correlationMatrix={lastRebalance.correlationMatrix}
+                          avgCorrelation={lastRebalance.avgCorrelation}
+                        />
+                      </>
+                    );
+                  } else if (hasSummaryCorr) {
+                    return (
+                      <>
+                        <p className="text-sm text-slate-300 mb-4">
+                          Initial correlation matrix from portfolio creation ({p.proposalSummary.lookbackPeriod || '5y'} lookback)
+                        </p>
+                        <CorrelationMatrixDisplay 
+                          holdings={p.proposalHoldings} 
+                          correlationMatrix={p.proposalSummary.correlationMatrix}
+                          avgCorrelation={p.proposalSummary.avgCorrelation || "N/A"}
+                        />
+                      </>
+                    );
+                  } else {
+                    return (
+                      <div className="text-center py-8 text-slate-400">
+                        <p>Correlation data will be available after the first rebalancing period</p>
+                        <p className="text-xs mt-2">Debug: No correlation matrix found in rebalance or summary data</p>
+                      </div>
+                    );
+                  }
+                })()}
+              </div>
+            )}
           </>
         )}
 
@@ -514,6 +807,177 @@ export default function PortfolioDetail() {
         )}
       </div>
     </main>
+  );
+}
+
+function CorrelationMatrixDisplay({ holdings, correlationMatrix, avgCorrelation }: { holdings: any[], correlationMatrix: number[][], avgCorrelation: string }) {
+  return (
+    <>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr>
+              <th className="p-2 text-left text-slate-200">Asset</th>
+              {holdings.map((h) => (
+                <th key={h.symbol} className="p-2 text-center text-slate-200 font-medium">
+                  {h.symbol}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {correlationMatrix.map((row: number[], i: number) => (
+              <tr key={i} className="border-t border-slate-600/30">
+                <td className="p-2 font-medium text-white">
+                  {holdings[i].symbol}
+                </td>
+                {row.map((corr: number, j: number) => (
+                  <td
+                    key={j}
+                    className="p-2 text-center font-semibold"
+                    style={{
+                      backgroundColor: corr > 0 
+                        ? `rgba(239, 68, 68, ${0.3 + Math.abs(corr) * 0.7})` // Red for positive
+                        : `rgba(34, 197, 94, ${0.3 + Math.abs(corr) * 0.7})`, // Green for negative
+                      color: Math.abs(corr) > 0.3 ? 'white' : 'rgba(255,255,255,0.95)'
+                    }}
+                  >
+                    {corr.toFixed(2)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      
+      <div className="mt-4 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <div className="w-5 h-3 rounded" style={{background: 'rgba(34, 197, 94, 1)'}}></div>
+            <span className="text-slate-300">Negative (diversifies)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-5 h-3 rounded" style={{background: 'rgba(239, 68, 68, 1)'}}></div>
+            <span className="text-slate-300">Positive (moves together)</span>
+          </div>
+        </div>
+        {avgCorrelation && (
+          <span className="text-slate-200 font-semibold">
+            Avg Correlation: {avgCorrelation}
+          </span>
+        )}
+      </div>
+    </>
+  );
+}
+
+const CHART_COLORS = [
+  '#10b981', // emerald-500
+  '#3b82f6', // blue-500
+  '#f59e0b', // amber-500
+  '#ef4444', // red-500
+  '#8b5cf6', // violet-500
+  '#ec4899', // pink-500
+  '#14b8a6', // teal-500
+  '#f97316', // orange-500
+];
+
+function AllocationPieChart({ weights }: { weights: any[] }) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const total = 360; // degrees in circle
+  
+  let currentAngle = 0;
+  const segments = weights.map((w, i) => {
+    const percentage = parseFloat(w.weight);
+    const angle = (percentage / 100) * total;
+    const segment = {
+      ...w,
+      percentage,
+      startAngle: currentAngle,
+      endAngle: currentAngle + angle,
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    };
+    currentAngle += angle;
+    return segment;
+  });
+
+  const radius = 80;
+  const centerX = 100;
+  const centerY = 100;
+
+  return (
+    <div className="flex flex-col items-center">
+      <div className="relative">
+        <svg width="200" height="200" viewBox="0 0 200 200" className="mb-4">
+          {segments.map((segment, i) => {
+            const startAngle = (segment.startAngle - 90) * (Math.PI / 180);
+            const endAngle = (segment.endAngle - 90) * (Math.PI / 180);
+            
+            const x1 = centerX + radius * Math.cos(startAngle);
+            const y1 = centerY + radius * Math.sin(startAngle);
+            const x2 = centerX + radius * Math.cos(endAngle);
+            const y2 = centerY + radius * Math.sin(endAngle);
+            
+            const largeArc = segment.endAngle - segment.startAngle > 180 ? 1 : 0;
+            
+            const pathData = [
+              `M ${centerX} ${centerY}`,
+              `L ${x1} ${y1}`,
+              `A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`,
+              'Z'
+            ].join(' ');
+            
+            return (
+              <path
+                key={i}
+                d={pathData}
+                fill={segment.color}
+                stroke="rgba(255,255,255,0.3)"
+                strokeWidth="1"
+                className="transition-all cursor-pointer"
+                style={{
+                  opacity: hoveredIndex === null || hoveredIndex === i ? 1 : 0.4,
+                  transform: hoveredIndex === i ? 'scale(1.05)' : 'scale(1)',
+                  transformOrigin: '100px 100px',
+                }}
+                onMouseEnter={() => setHoveredIndex(i)}
+                onMouseLeave={() => setHoveredIndex(null)}
+              />
+            );
+          })}
+        </svg>
+        
+        {/* Center label */}
+        {hoveredIndex !== null && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
+            <div className="text-xs font-semibold text-white">{segments[hoveredIndex].ticker}</div>
+            <div className="text-lg font-bold text-white">{segments[hoveredIndex].percentage.toFixed(1)}%</div>
+          </div>
+        )}
+      </div>
+      
+      <div className="w-full space-y-2">
+        {weights.map((w, i) => (
+          <div 
+            key={i} 
+            className="flex items-center justify-between text-sm transition-opacity cursor-pointer"
+            style={{ opacity: hoveredIndex === null || hoveredIndex === i ? 1 : 0.5 }}
+            onMouseEnter={() => setHoveredIndex(i)}
+            onMouseLeave={() => setHoveredIndex(null)}
+          >
+            <div className="flex items-center gap-2">
+              <div 
+                className="w-3 h-3 rounded-full" 
+                style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}
+              />
+              <span className="font-medium text-white">{w.ticker}</span>
+            </div>
+            <span className="text-slate-300">{w.weight}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

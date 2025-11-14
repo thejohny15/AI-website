@@ -12,6 +12,8 @@ export default function DashboardPage() {
   const userId = user?.id ?? "";
 
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [portfolioName, setPortfolioName] = useState("");
 
   useEffect(() => {
     if (isLoaded && userId) {
@@ -30,9 +32,17 @@ export default function DashboardPage() {
   function handleCreatePortfolio() {
     if (!userId) return;
     
-    const newPortfolio = createPortfolio(userId, { name: `Portfolio ${portfolios.length + 1}` });
+    const name = portfolioName.trim() || `Portfolio ${portfolios.length + 1}`;
+    const newPortfolio = createPortfolio(userId, { name });
     setPortfolios(listPortfolios(userId));
+    setShowCreateModal(false);
+    setPortfolioName("");
     router.push(`/portfolio/setup?pid=${newPortfolio.id}`);
+  }
+
+  function openCreateModal() {
+    setPortfolioName(`Portfolio ${portfolios.length + 1}`);
+    setShowCreateModal(true);
   }
 
   function handleDeletePortfolio(id: string) {
@@ -58,7 +68,7 @@ export default function DashboardPage() {
         {/* Create New Portfolio Button */}
         <div className="mb-6 text-center">
           <button
-            onClick={handleCreatePortfolio}
+            onClick={openCreateModal}
             className="rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-6 py-3 font-semibold shadow-lg hover:from-emerald-600 hover:to-emerald-700 transition-all"
           >
             + Create New Portfolio
@@ -74,7 +84,7 @@ export default function DashboardPage() {
               Create your first portfolio to get started with portfolio analysis
             </p>
             <button
-              onClick={handleCreatePortfolio}
+              onClick={openCreateModal}
               className="rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-6 py-3 font-semibold shadow-lg hover:from-emerald-600 hover:to-emerald-700 transition-all"
             >
               + Create New Portfolio
@@ -123,6 +133,51 @@ export default function DashboardPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Create Portfolio Modal */}
+        {showCreateModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-slate-800 rounded-2xl border border-slate-600/50 shadow-2xl max-w-md w-full p-6">
+              <h2 className="text-2xl font-bold text-white mb-4">Create New Portfolio</h2>
+              <p className="text-slate-300 text-sm mb-4">
+                Give your portfolio a name to get started
+              </p>
+              
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-slate-200 mb-2">
+                  Portfolio Name
+                </label>
+                <input
+                  type="text"
+                  value={portfolioName}
+                  onChange={(e) => setPortfolioName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreatePortfolio();
+                    if (e.key === 'Escape') setShowCreateModal(false);
+                  }}
+                  placeholder="e.g., Retirement Fund, Growth Portfolio"
+                  className="w-full rounded-xl border border-slate-600/50 bg-slate-700/50 text-white px-4 py-3 outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="flex-1 rounded-xl bg-slate-700/50 border border-slate-600/50 text-slate-200 px-4 py-3 font-semibold hover:bg-slate-700 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreatePortfolio}
+                  className="flex-1 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-4 py-3 font-semibold shadow-lg hover:from-emerald-600 hover:to-emerald-700 transition-all"
+                >
+                  Create
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

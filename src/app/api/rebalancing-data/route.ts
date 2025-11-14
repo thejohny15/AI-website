@@ -188,6 +188,77 @@ export async function POST(req: NextRequest) {
       const annualizedVol = Math.sqrt(variance * 252) * 100;
       const sharpe = annualizedVol > 0 ? ((avgReturn * 252) / (annualizedVol / 100)) : 0;
       
+      // Calculate correlation matrix for this period
+      const assetReturns: number[][] = symbols.map(() => []);
+      
+      // Collect daily returns for each asset in this period
+      for (const date of periodDates) {
+        symbols.forEach((symbol: string, idx: number) => {
+          const prices = priceData[symbol] || [];
+          const todayData = prices.find(p => p.date === date);
+          const todayPrice = todayData?.price;
+          const yesterdayPrice = prevPrices[symbol];
+          
+          if (todayPrice && yesterdayPrice && yesterdayPrice > 0) {
+            const priceReturn = (todayPrice - yesterdayPrice) / yesterdayPrice;
+            assetReturns[idx].push(priceReturn);
+          }
+        });
+      }
+      
+      // Calculate correlation matrix
+      const correlationMatrix: number[][] = [];
+      for (let i = 0; i < symbols.length; i++) {
+        const row: number[] = [];
+        for (let j = 0; j < symbols.length; j++) {
+          if (i === j) {
+            row.push(1); // Perfect correlation with self
+          } else {
+            const returnsI = assetReturns[i];
+            const returnsJ = assetReturns[j];
+            
+            if (returnsI.length > 1 && returnsJ.length > 1) {
+              const meanI = returnsI.reduce((sum, r) => sum + r, 0) / returnsI.length;
+              const meanJ = returnsJ.reduce((sum, r) => sum + r, 0) / returnsJ.length;
+              
+              let covariance = 0;
+              let varianceI = 0;
+              let varianceJ = 0;
+              
+              for (let k = 0; k < Math.min(returnsI.length, returnsJ.length); k++) {
+                const diffI = returnsI[k] - meanI;
+                const diffJ = returnsJ[k] - meanJ;
+                covariance += diffI * diffJ;
+                varianceI += diffI * diffI;
+                varianceJ += diffJ * diffJ;
+              }
+              
+              const stdI = Math.sqrt(varianceI);
+              const stdJ = Math.sqrt(varianceJ);
+              
+              const correlation = (stdI > 0 && stdJ > 0) ? covariance / (stdI * stdJ) : 0;
+              row.push(correlation);
+            } else {
+              row.push(0);
+            }
+          }
+        }
+        correlationMatrix.push(row);
+      }
+      
+      // Calculate average correlation (excluding diagonal)
+      let corrSum = 0;
+      let corrCount = 0;
+      for (let i = 0; i < correlationMatrix.length; i++) {
+        for (let j = 0; j < correlationMatrix[i].length; j++) {
+          if (i !== j) {
+            corrSum += correlationMatrix[i][j];
+            corrCount++;
+          }
+        }
+      }
+      const avgCorrelation = corrCount > 0 ? (corrSum / corrCount).toFixed(2) : "0.00";
+      
       // Apply rebalancing: reset weights to target
       currentWeights = [...targetWeights];
       
@@ -200,7 +271,9 @@ export async function POST(req: NextRequest) {
         weightChanges,
         qtrReturn: qtrReturn.toFixed(2),
         vol: annualizedVol.toFixed(2),
-        sharpe: sharpe.toFixed(2)
+        sharpe: sharpe.toFixed(2),
+        correlationMatrix: correlationMatrix,
+        avgCorrelation: avgCorrelation
       });
       
       console.log(`Rebalance ${rebalanceIdx + 1}: Date=${rebalanceDate}, Value=$${portfolioValue.toFixed(2)}, Return=${qtrReturn.toFixed(2)}%`);
