@@ -34,6 +34,10 @@ export type Portfolio = {
   rebalancingFrequency?: 'monthly' | 'quarterly' | 'annually'; // How often to rebalance
   lastRebalanceDate?: string; // ISO date string of last rebalance
 
+  // Backtest period (for matching full-analysis historical performance)
+  backtestStartDate?: string; // Start date of backtest period from portfolio generation
+  backtestEndDate?: string; // End date of backtest period from portfolio generation
+
   // ...existing fields...
   currentHoldings?: { symbol: string; shares: number; buyPrice: number; note?: string }[];
 

@@ -1,5 +1,11 @@
 // filepath: /Users/johnjohn/my-ai-app/src/lib/backtest.ts
 
+import {
+  calculateReturns,
+  calculateCovarianceMatrix,
+  optimizeERC,
+} from './riskBudgeting';
+
 /**
  * Portfolio Backtesting and Advanced Analytics
  * 
@@ -153,17 +159,37 @@ export function runBacktest(
   pricesMap: Map<string, number[]>, // ticker -> price array
   dividendsMap: Map<string, number[]>, // ticker -> dividend array (NEW!)
   dates: string[],
-  weights: number[],
+  initialWeights: number[], // Initial weights (renamed for clarity)
   tickers: string[],
   rebalanceConfig: RebalanceConfig,
   initialValue: number = 10000,
-  reinvestDividends: boolean = true  // NEW: control whether to reinvest or just track
+  reinvestDividends: boolean = true,  // NEW: control whether to reinvest or just track
+  targetBudgets?: number[]  // NEW: custom risk budgets for rebalancing (optional)
 ): BacktestResult {
   const n = dates.length;
   const portfolioValues: number[] = [initialValue];
   const returns: number[] = [];
   let totalDividendCash = 0;  // Track cumulative dividend cash with current strategy
   let totalDividendCashIfReinvested = 0;  // Track what dividends would be if reinvested (shadow portfolio)
+  
+  // Validate data before proceeding
+  if (n === 0) {
+    throw new Error('No dates provided for backtest');
+  }
+  
+  for (const ticker of tickers) {
+    const prices = pricesMap.get(ticker);
+    if (!prices || prices.length === 0) {
+      throw new Error(`No price data available for ${ticker}`);
+    }
+    if (prices.length !== n) {
+      throw new Error(`Price data length mismatch for ${ticker}: expected ${n}, got ${prices.length}`);
+    }
+  }
+  
+  // Track current weights (will change at each rebalance)
+  let currentWeights = [...initialWeights];
+  let previousTargetWeights = [...initialWeights];  // Track previous rebalance targets
   
   // Initialize positions (number of shares for each asset)
   // 
@@ -177,7 +203,7 @@ export function runBacktest(
   // - Asset 4 (DBC @ $20):  Buy 25% × $10,000 / $20  = 125 shares
   // 
   // These share counts remain constant until we rebalance
-  const shares = weights.map((w, i) => {
+  const shares = currentWeights.map((w: number, i: number) => {
     const ticker = tickers[i];
     const prices = pricesMap.get(ticker)!;
     const targetValue = initialValue * w;  // Dollar amount to invest
@@ -276,13 +302,43 @@ export function runBacktest(
     // - Purpose: weights drift over time (winners grow, losers shrink)
     // - Rebalancing brings them back to targets
     // 
-    // Example: Started 25/25/25/25, but now 30/20/25/25
-    // Rebalance → sell some of the 30% asset, buy more of the 20%
+    // DYNAMIC REBALANCING:
+    // - Recalculate optimal weights based on recent market data
+    // - Use rolling 1-year window (252 trading days)
+    // - Re-optimize using ERC with current correlations
+    // 
+    // Example: Started 25/25/25/25, but market changed
+    // Bonds more volatile → bonds get LOWER weight
+    // Stocks less volatile → stocks get HIGHER weight
     if (shouldRebalance(dates[t], lastRebalanceDate, rebalanceConfig.frequency)) {
+      // DYNAMIC WEIGHT CALCULATION:
+      // Use the last 252 days (1 year) to calculate new optimal weights
+      
+      const lookbackWindow = Math.min(252, t); // Use up to 1 year of data
+      const startIdx = Math.max(0, t - lookbackWindow);
+      
+      // Extract recent price data for each asset
+      const recentReturnsData: number[][] = [];
+      for (const ticker of tickers) {
+        const prices = pricesMap.get(ticker)!;
+        const recentPrices = prices.slice(startIdx, t + 1);
+        const recentReturns = calculateReturns(recentPrices);
+        recentReturnsData.push(recentReturns);
+      }
+      
+      // Calculate new covariance matrix from recent data
+      const recentCovMatrix = calculateCovarianceMatrix(recentReturnsData);
+      
+      // Re-optimize weights using ERC based on current market conditions
+      const optimization = optimizeERC(recentCovMatrix, 1000, 1e-6, targetBudgets);
+      
+      // Update current weights to the newly optimized weights
+      currentWeights = optimization.weights;
+      
       // REBALANCING PROCESS:
       
-      // Calculate current weights before rebalancing
-      const currentWeights = tickers.map((ticker, i) => {
+      // Calculate current weights before rebalancing (for tracking drift)
+      const currentWeightsBeforeRebalance = tickers.map((ticker, i) => {
         const prices = pricesMap.get(ticker)!;
         const assetValue = shares[i] * prices[t];
         return (assetValue / portfolioValue) * 100;
@@ -308,10 +364,10 @@ export function runBacktest(
       const totalTransactionCost = portfolioValue * rebalanceConfig.transactionCost;
       const portfolioAfterCosts = portfolioValue - totalTransactionCost;
       
-      // Rebalance ACTUAL portfolio: buy new shares at target weights using the portfolio value after costs
+      // Rebalance ACTUAL portfolio: buy new shares at NEW OPTIMIZED weights
       tickers.forEach((ticker, i) => {
         const prices = pricesMap.get(ticker)!;
-        const targetValue = portfolioAfterCosts * weights[i];  // Target dollar amount
+        const targetValue = portfolioAfterCosts * currentWeights[i];  // Use NEW weights!
         shares[i] = targetValue / prices[t];  // New share count
       });
       
@@ -332,10 +388,10 @@ export function runBacktest(
         // Apply same transaction cost percentage
         const shadowPortfolioAfterCosts = shadowPortfolioValueAtRebalance - (shadowPortfolioValueAtRebalance * rebalanceConfig.transactionCost);
         
-        // Rebalance to same target weights
+        // Rebalance to same NEW optimized weights
         tickers.forEach((ticker, i) => {
           const prices = pricesMap.get(ticker)!;
-          const targetValue = shadowPortfolioAfterCosts * weights[i];
+          const targetValue = shadowPortfolioAfterCosts * currentWeights[i];  // Use NEW weights!
           shadowShares[i] = targetValue / prices[t];
         });
       }
@@ -349,11 +405,14 @@ export function runBacktest(
         quarterlyReturn: parseFloat(quarterlyReturn.toFixed(2)),
         changes: tickers.map((ticker, i) => ({
           ticker,
-          beforeWeight: parseFloat(currentWeights[i].toFixed(2)),
-          afterWeight: parseFloat((weights[i] * 100).toFixed(2)),
-          drift: parseFloat((currentWeights[i] - weights[i] * 100).toFixed(2)),
+          beforeWeight: parseFloat(currentWeightsBeforeRebalance[i].toFixed(2)),  // Actual drifted weight
+          afterWeight: parseFloat((currentWeights[i] * 100).toFixed(2)),  // NEW optimized target
+          drift: parseFloat((currentWeightsBeforeRebalance[i] - previousTargetWeights[i] * 100).toFixed(2)),  // How far it drifted from last target
         })),
       });
+      
+      // Update previous target weights for next rebalance
+      previousTargetWeights = [...currentWeights];
       
       rebalanceCount++;
       lastRebalanceDate = dates[t];
@@ -679,14 +738,25 @@ export function compareStrategies(
   tickers: string[],
   riskBudgetWeights: number[],
   rebalanceConfig: RebalanceConfig,
-  reinvestDividends: boolean = true
+  reinvestDividends: boolean = true,
+  targetBudgets?: number[]  // NEW: custom risk budgets
 ): {
   riskBudgeting: BacktestResult;
   equalWeight: BacktestResult;
   marketCap?: BacktestResult;
 } {
-  // Risk Budgeting strategy (your optimized weights)
-  const riskBudgeting = runBacktest(pricesMap, dividendsMap, dates, riskBudgetWeights, tickers, rebalanceConfig, 10000, reinvestDividends);
+  // Risk Budgeting strategy (your optimized weights with dynamic rebalancing)
+  const riskBudgeting = runBacktest(
+    pricesMap, 
+    dividendsMap, 
+    dates, 
+    riskBudgetWeights, 
+    tickers, 
+    rebalanceConfig, 
+    10000, 
+    reinvestDividends,
+    targetBudgets  // Pass custom budgets for dynamic rebalancing
+  );
   
   // Equal Weight strategy (naive 1/N allocation)
   // Simply divide money equally: 1/N for N assets

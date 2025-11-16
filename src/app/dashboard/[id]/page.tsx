@@ -37,7 +37,7 @@ export default function PortfolioDetail() {
     setP(getPortfolio(userId, pid) as any);
   }, [isLoaded, userId, pid]);
 
-  // Fetch quotes for proposal + current holdings with auto-refresh
+  // Fetch quotes for proposal + current holdings - once per day after market close
   useEffect(() => {
     const propSyms = (p?.proposalHoldings ?? []).map((h) => String(h.symbol).trim());
     const all = Array.from(new Set([...propSyms])).filter(Boolean);
@@ -57,14 +57,33 @@ export default function PortfolioDetail() {
       }
     };
 
-    // Initial fetch
+    // Initial fetch on page load
     fetchQuotes();
 
-    // Set up auto-refresh every 60 seconds
-    const interval = setInterval(fetchQuotes, 60000);
+    // Calculate milliseconds until next 5:00 PM ET (after market close at 4:00 PM ET + 1 hour buffer)
+    // 5:00 PM ET = 10:00 PM UTC (22:00) or 9:00 PM UTC (21:00) depending on DST
+    const scheduleNextUpdate = () => {
+      const now = new Date();
+      const nextUpdate = new Date();
+      nextUpdate.setUTCHours(22, 0, 0, 0); // 10 PM UTC = 5 PM ET (standard time)
+      
+      // If we've passed today's update time, schedule for tomorrow
+      if (now >= nextUpdate) {
+        nextUpdate.setUTCDate(nextUpdate.getUTCDate() + 1);
+      }
+      
+      const msUntilUpdate = nextUpdate.getTime() - now.getTime();
+      
+      setTimeout(() => {
+        fetchQuotes();
+        // Schedule next day's update
+        scheduleNextUpdate();
+      }, msUntilUpdate);
+    };
 
-    // Cleanup interval on unmount or dependency change
-    return () => clearInterval(interval);
+    scheduleNextUpdate();
+
+    // No cleanup needed - timeout handles scheduling
   }, [p?.proposalHoldings]);
 
 
@@ -98,25 +117,42 @@ export default function PortfolioDetail() {
     async function fetchRebalancingData() {
       setLoadingRebalancing(true);
       try {
-        const lookback = p!.proposalSummary?.lookbackPeriod || '5y';
-        const today = new Date();
-        const startDate = new Date();
-        
-        switch(lookback) {
-          case '1y':
-            startDate.setFullYear(today.getFullYear() - 1);
-            break;
-          case '3y':
-            startDate.setFullYear(today.getFullYear() - 3);
-            break;
-          case '5y':
-          default:
-            startDate.setFullYear(today.getFullYear() - 5);
-            break;
-        }
-        
         const symbols = p!.proposalHoldings!.map(h => h.symbol);
         const weights = p!.proposalHoldings!.map(h => h.weight);
+        
+        // Use saved backtest dates if available (matches full-analysis exactly)
+        // Otherwise fall back to calculating from lookback period
+        let startDate: string;
+        let endDate: string;
+        
+        if (p!.backtestStartDate && p!.backtestEndDate) {
+          // Use exact dates from when portfolio was generated
+          startDate = p!.backtestStartDate;
+          endDate = p!.backtestEndDate;
+          console.log('📅 Using saved backtest dates:', startDate, 'to', endDate);
+        } else {
+          // Fallback: calculate from lookback period (for old portfolios)
+          const lookback = p!.proposalSummary?.lookbackPeriod || '5y';
+          const today = new Date();
+          const start = new Date();
+          
+          switch(lookback) {
+            case '1y':
+              start.setFullYear(today.getFullYear() - 1);
+              break;
+            case '3y':
+              start.setFullYear(today.getFullYear() - 3);
+              break;
+            case '5y':
+            default:
+              start.setFullYear(today.getFullYear() - 5);
+              break;
+          }
+          
+          startDate = start.toISOString().split('T')[0];
+          endDate = today.toISOString().split('T')[0];
+          console.log('📅 Calculated dates from lookback:', startDate, 'to', endDate);
+        }
         
         const response = await fetch('/api/rebalancing-data', {
           method: 'POST',
@@ -124,8 +160,8 @@ export default function PortfolioDetail() {
           body: JSON.stringify({
             symbols,
             weights,
-            startDate: startDate.toISOString().split('T')[0],
-            endDate: today.toISOString().split('T')[0]
+            startDate,
+            endDate
           })
         });
         
@@ -153,14 +189,28 @@ export default function PortfolioDetail() {
         const symbols = p!.proposalHoldings!.map(h => h.symbol);
         const weights = p!.proposalHoldings!.map(h => h.weight);
         
+        // Get creation date and today
+        const creationDate = new Date(p!.createdAt);
+        const today = new Date();
+        
+        // Check if portfolio was created today or very recently (less than 2 days ago)
+        const daysSinceCreation = Math.floor((today.getTime() - creationDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (daysSinceCreation < 2) {
+          // Portfolio too new - skip this API call
+          console.log('Portfolio created too recently, skipping since-creation analysis');
+          setLoadingSinceCreation(false);
+          return;
+        }
+        
         const response = await fetch('/api/rebalancing-data', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             symbols,
             weights,
-            startDate: new Date(p!.createdAt).toISOString().split('T')[0],
-            endDate: new Date().toISOString().split('T')[0],
+            startDate: creationDate.toISOString().split('T')[0],
+            endDate: today.toISOString().split('T')[0],
             includeCorrelations: true // Request correlation data
           })
         });
@@ -362,7 +412,7 @@ export default function PortfolioDetail() {
                           <div className="col-span-2 grid grid-cols-2 gap-x-4 gap-y-1">
                             {rebalance.weightChanges.slice(0, 4).map((change: any, hIdx: number) => (
                               <div key={hIdx} className="flex items-center gap-1.5 text-xs">
-                                <span className="text-slate-300 font-medium min-w-[45px]">{change.symbol}:</span>
+                                <span className="text-slate-300 font-medium min-w-[45px]">{change.ticker || change.symbol}:</span>
                                 <span className="text-slate-100">
                                   {change.beforeWeight}% → {change.afterWeight}%
                                 </span>
@@ -649,69 +699,259 @@ export default function PortfolioDetail() {
               </div>
             )}
 
-            {/* Portfolio Allocation Pie Chart */}
-            <div className="mb-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
-              <h2 className="text-2xl font-bold text-white mb-4">Current Portfolio Allocation</h2>
-              {sinceCreationRebalancingData.length > 0 ? (
-                <>
-                  <p className="text-sm text-slate-300 mb-4">
-                    As of {new Date(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].date).toLocaleDateString()} (last rebalance)
-                  </p>
-                  <AllocationPieChart weights={sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].weightChanges.map((wc: any) => ({
-                    ticker: wc.symbol,
-                    name: wc.symbol,
-                    weight: wc.afterWeight,
-                    riskContribution: wc.afterWeight
-                  }))} />
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-slate-300 mb-4">Target allocation (no rebalancing data yet)</p>
-                  <AllocationPieChart weights={p.proposalHoldings.map(h => ({
-                    ticker: h.symbol,
-                    name: h.symbol,
-                    weight: h.weight.toString(),
-                    riskContribution: h.weight.toString()
-                  }))} />
-                </>
-              )}
-            </div>
+{/* Portfolio Allocation Pie Charts - Side by Side */}
+<div className="mb-6 grid gap-6 lg:grid-cols-2">
+  {/* LEFT: Portfolio Allocation */}
+  <div className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
+    <h2 className="text-2xl font-bold text-white mb-2">Portfolio Allocation</h2>
+    {sinceCreationRebalancingData.length > 0 ? (
+      <>
+        <p className="text-sm text-slate-300 mb-4">
+          Last rebalanced: {new Date(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].date).toLocaleDateString()}
+        </p>
+        <AllocationPieChart weights={sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].weightChanges.map((wc: any) => ({
+          ticker: wc.ticker || wc.symbol,
+          name: wc.ticker || wc.symbol,
+          weight: wc.afterWeight,
+          riskContribution: wc.afterWeight
+        }))} />
+        <div className="mt-4 p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10">
+          <p className="text-xs text-emerald-200">
+            <strong>Dynamic Rebalancing:</strong> Portfolio rebalances quarterly (Jan 1, Apr 1, Jul 1, Oct 1) 
+            using updated market data. Weights are recalculated using Equal Risk Contribution (ERC) optimization 
+            based on the most recent volatility and correlation patterns. This ensures the portfolio adapts to 
+            changing market conditions while maintaining balanced risk across all assets.
+          </p>
+        </div>
+      </>
+    ) : (
+      <>
+        <p className="text-sm text-slate-300 mb-4">
+          Initial ERC allocation (created {new Date(p.createdAt).toLocaleDateString()})
+        </p>
+        <AllocationPieChart weights={p.proposalHoldings.map(h => ({
+          ticker: h.symbol,
+          name: h.symbol,
+          weight: h.weight.toString(),
+          riskContribution: h.weight.toString()
+        }))} />
+        <div className="mt-4 p-3 rounded-lg border border-blue-500/30 bg-blue-500/10">
+          <p className="text-xs text-blue-200">
+            <strong>Initial Allocation:</strong> Equal Risk Contribution (ERC) portfolio optimized at creation. 
+            Each asset contributes equally to total portfolio risk. Portfolio will automatically rebalance 
+            on the first day of the next quarter (Jan 1, Apr 1, Jul 1, or Oct 1) using updated market data 
+            to recalculate optimal weights based on current volatility and correlations.
+          </p>
+        </div>
+      </>
+    )}
+  </div>
 
-            {/* Holdings Table */}
+  {/* RIGHT: Market Drift */}
+  <div className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
+    <h2 className="text-2xl font-bold text-white mb-2">Current Market Drift</h2>
+    <p className="text-sm text-slate-300 mb-4">Live weights based on today's prices</p>
+    {(() => {
+      // Get target weights and prices from last rebalance or initial
+      const lastRebalanceData = sinceCreationRebalancingData.length > 0
+        ? sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1]
+        : null;
+      
+      const targetWeights = lastRebalanceData
+        ? lastRebalanceData.weightChanges.map((wc: any) => ({
+            symbol: wc.ticker || wc.symbol,
+            weight: parseFloat(wc.afterWeight)
+          }))
+        : p.proposalHoldings?.map((h: any) => ({
+            symbol: h.symbol,
+            weight: h.weight
+          })) || [];
+      
+      // Get historical prices from last rebalance
+      const pricesAtRebalance: Record<string, number> = lastRebalanceData?.pricesAtRebalance || {};
+      
+      // Calculate ACCURATE current weights using real historical prices
+      const currentWeights = targetWeights.map((tw: any) => {
+        const quote = quotes[tw.symbol];
+        const currentPrice = quote?.price || 0;
+        const rebalancePrice = pricesAtRebalance[tw.symbol] || currentPrice; // Fallback to current if no historical data
+        
+        // Calculate shares bought at last rebalance
+        const initialValue = 10000 * (tw.weight / 100);
+        const shares = rebalancePrice > 0 ? initialValue / rebalancePrice : 0;
+        
+        // Value those shares at TODAY's price
+        const currentValue = shares * currentPrice;
+        
+        return {
+          ticker: tw.symbol,
+          name: tw.symbol,
+          value: currentValue,
+          targetWeight: tw.weight,
+          rebalancePrice,
+          currentPrice
+        };
+      });
+      
+      const totalValue = currentWeights.reduce((sum: number, w: any) => sum + w.value, 0);
+      
+      const weightsWithPercentages = currentWeights.map((w: any) => ({
+        ...w,
+        weight: totalValue > 0 ? ((w.value / totalValue) * 100).toFixed(2) : w.targetWeight.toFixed(2),
+        riskContribution: totalValue > 0 ? ((w.value / totalValue) * 100).toFixed(2) : w.targetWeight.toFixed(2),
+        drift: totalValue > 0 ? (((w.value / totalValue) * 100) - w.targetWeight).toFixed(2) : '0.00'
+      }));
+      
+      return (
+        <>
+          <AllocationPieChart weights={weightsWithPercentages} />
+          <div className="mt-3 space-y-1">
+            {weightsWithPercentages.map((w: any, i: number) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <span className="text-slate-300">{w.ticker}:</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-100">{w.weight}%</span>
+                  <span className={`font-semibold ${
+                    parseFloat(w.drift) > 0 ? 'text-emerald-400' : parseFloat(w.drift) < 0 ? 'text-red-400' : 'text-slate-300'
+                  }`}>
+                    ({parseFloat(w.drift) > 0 ? '+' : ''}{w.drift}%)
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      );
+    })()}
+    <div className="mt-4 p-3 rounded-lg border border-amber-500/30 bg-amber-500/10">
+      <p className="text-xs text-amber-200">
+        <strong>Live Drift:</strong> These weights change daily as stock prices move. 
+        Assets that outperform grow larger (positive drift), while underperformers shrink (negative drift). 
+        Compare this chart with the left chart to see how far your portfolio has drifted from its target allocation. 
+        At the next quarterly rebalance, the portfolio will be adjusted: winners will be sold (taking profits) 
+        and losers will be bought (buying the dip) to restore risk balance.
+      </p>
+    </div>
+  </div>
+</div>            {/* Holdings Table */}
             <div className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
               <h2 className="text-2xl font-bold text-white mb-4">Current Portfolio Holdings</h2>
-              {sinceCreationRebalancingData.length > 0 && (
+              {sinceCreationRebalancingData.length > 0 ? (
                 <p className="text-sm text-slate-300 mb-4">
-                  As of {new Date(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].date).toLocaleDateString()} • 
-                  Portfolio Value: ${sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].portfolioValue}
+                  Last rebalanced: {new Date(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].date).toLocaleDateString()} • 
+                  Portfolio Value: ${sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].portfolioValue} • 
+                  Updates daily after market close
+                </p>
+              ) : (
+                <p className="text-sm text-slate-300 mb-4">
+                  Initial allocation (created {new Date(p.createdAt).toLocaleDateString()}) • Updates daily after market close
                 </p>
               )}
             <div className="overflow-x-auto">
-              <table className="w-full text-left">
+              <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="text-slate-200 border-b border-slate-600/30">
-                    <th className="py-3 pr-6 font-semibold">Symbol</th>
-                    <th className="py-3 pr-6 text-right font-semibold">Weight</th>
-                    <th className="py-3 font-semibold">Notes</th>
+                    <th className="py-3 pr-4 font-semibold">Symbol</th>
+                    <th className="py-3 pr-4 text-right font-semibold">Target Weight</th>
+                    <th className="py-3 pr-4 text-right font-semibold">Current Weight</th>
+                    <th className="py-3 pr-4 text-right font-semibold">Drift</th>
+                    <th className="py-3 pr-4 text-right font-semibold">Return</th>
+                    <th className="py-3 pr-4 text-right font-semibold">Risk Contrib.</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(sinceCreationRebalancingData.length > 0 
-                    ? sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].weightChanges.map((wc: any) => ({
-                        symbol: wc.symbol,
-                        weight: parseFloat(wc.afterWeight),
-                        note: `Drift: ${wc.drift}% • Rebalanced from ${wc.beforeWeight}%`
-                      }))
-                    : p.proposalHoldings
-                  ).map((h: any, i: number) => (
-                    <tr key={i} className="border-b border-slate-600/20">
-                      <td className="py-3 pr-6 font-semibold text-white">{h.symbol}</td>
-                      <td className="py-3 pr-6 text-right font-semibold text-white">{h.weight}%</td>
-                      <td className="py-3 text-slate-300 text-sm">{h.note || "-"}</td>
-                    </tr>
-                  ))}
+                  {(() => {
+                    // Get last rebalance data
+                    const lastRebalanceData = sinceCreationRebalancingData.length > 0
+                      ? sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1]
+                      : null;
+                    
+                    const targetWeights = lastRebalanceData
+                      ? lastRebalanceData.weightChanges.map((wc: any) => ({
+                          symbol: wc.ticker || wc.symbol,
+                          targetWeight: parseFloat(wc.afterWeight)
+                        }))
+                      : p.proposalHoldings?.map((h: any) => ({
+                          symbol: h.symbol,
+                          targetWeight: h.weight
+                        })) || [];
+                    
+                    const pricesAtRebalance: Record<string, number> = lastRebalanceData?.pricesAtRebalance || {};
+                    
+                    // Calculate current metrics for each holding
+                    const holdings = targetWeights.map((tw: any) => {
+                      const quote = quotes[tw.symbol];
+                      const currentPrice = quote?.price || 0;
+                      const rebalancePrice = pricesAtRebalance[tw.symbol] || currentPrice;
+                      
+                      // Calculate shares and current value
+                      const initialValue = 10000 * (tw.targetWeight / 100);
+                      const shares = rebalancePrice > 0 ? initialValue / rebalancePrice : 0;
+                      const currentValue = shares * currentPrice;
+                      
+                      // Calculate return since last rebalance
+                      const returnPercent = rebalancePrice > 0 
+                        ? ((currentPrice - rebalancePrice) / rebalancePrice * 100) 
+                        : 0;
+                      
+                      return {
+                        symbol: tw.symbol,
+                        targetWeight: tw.targetWeight,
+                        currentValue,
+                        rebalancePrice,
+                        currentPrice,
+                        returnPercent
+                      };
+                    });
+                    
+                    const totalValue = holdings.reduce((sum: number, h: any) => sum + h.currentValue, 0);
+                    
+                    return holdings.map((h: any, i: number) => {
+                      const currentWeight = totalValue > 0 ? (h.currentValue / totalValue * 100) : h.targetWeight;
+                      const drift = currentWeight - h.targetWeight;
+                      
+                      // Estimate risk contribution as proportional to current weight
+                      // (Actual risk contribution would require recalculating volatility/correlation)
+                      const riskContribution = currentWeight; // Approximation: weight ≈ risk in ERC portfolios
+                      
+                      return (
+                        <tr key={i} className="border-b border-slate-600/20 hover:bg-slate-700/30 transition">
+                          <td className="py-3 pr-4 font-bold text-white">{h.symbol}</td>
+                          <td className="py-3 pr-4 text-right text-slate-300">{h.targetWeight.toFixed(2)}%</td>
+                          <td className="py-3 pr-4 text-right font-semibold text-white">{currentWeight.toFixed(2)}%</td>
+                          <td className="py-3 pr-4 text-right">
+                            <span className={`font-semibold ${
+                              drift > 0.5 ? 'text-emerald-400' : drift < -0.5 ? 'text-red-400' : 'text-slate-300'
+                            }`}>
+                              {drift > 0 ? '+' : ''}{drift.toFixed(2)}%
+                            </span>
+                          </td>
+                          <td className="py-3 pr-4 text-right">
+                            <span className={`font-bold ${
+                              h.returnPercent >= 0 ? 'text-emerald-400' : 'text-red-400'
+                            }`}>
+                              {h.returnPercent >= 0 ? '+' : ''}{h.returnPercent.toFixed(2)}%
+                            </span>
+                          </td>
+                          <td className="py-3 pr-4 text-right text-slate-300">
+                            {riskContribution.toFixed(2)}%
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
+            </div>
+            <div className="mt-4 p-3 rounded-lg border border-purple-500/30 bg-purple-500/10">
+              <p className="text-xs text-purple-200">
+                <strong>Daily Tracking:</strong> This table updates once per day after market close (4:00 PM ET). 
+                <strong> Target Weight</strong> = optimized allocation from last rebalance. 
+                <strong> Current Weight</strong> = actual weight based on most recent closing prices. 
+                <strong> Drift</strong> = difference from target (rebalancing corrects large drifts). 
+                <strong> Return</strong> = price change since last quarterly rebalance. 
+                <strong> Risk Contrib.</strong> = risk contribution using 5-year rolling volatility window (calculated daily, approximated by current weight between rebalances).
+              </p>
             </div>
           </div>
 

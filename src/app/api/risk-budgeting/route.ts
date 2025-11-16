@@ -335,15 +335,21 @@ export async function POST(req: NextRequest) {
     
     console.log(`Backtest period: ${backtestDateArray[0]} to ${backtestDateArray[backtestDateArray.length - 1]} (${backtestDateArray.length} days)`);
     
+    // Convert custom budgets to decimal format for backtest if provided
+    const backtestTargetBudgets = customBudgets 
+      ? customBudgets.map((b: number) => b / 100)
+      : undefined;
+    
     const backtest = runBacktest(
       backtestPrices,  // Use only backtest period prices
       backtestDividends,  // Always pass dividend data (for tracking cash)
       backtestDateArray,  // Use only backtest period dates
-      optimization.weights,
+      optimization.weights,  // Initial weights
       tickers,
       { frequency: 'quarterly', transactionCost: 0.001 },
       10000,
-      includeDividends  // Control reinvestment based on user preference
+      includeDividends,  // Control reinvestment based on user preference
+      backtestTargetBudgets  // Pass custom budgets for dynamic rebalancing
     );
     
     // Strategy comparison (also on backtest period only)
@@ -355,7 +361,8 @@ export async function POST(req: NextRequest) {
       tickers,
       optimization.weights,
       { frequency: 'quarterly', transactionCost: 0.001 },
-      includeDividends  // Control reinvestment based on user preference
+      includeDividends,  // Control reinvestment based on user preference
+      backtestTargetBudgets  // Pass custom budgets for dynamic rebalancing
     );
     
     // Find worst crisis period

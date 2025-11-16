@@ -1,19 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { runBacktest } from "@/lib/backtest";
 
 /**
  * REBALANCING DATA API
  * ====================
- * This endpoint calculates historical portfolio performance with quarterly rebalancing
- * using the EXACT SAME economic model as the Risk Budgeting backtest.
+ * Calculates historical portfolio performance using FIXED weights.
+ * Uses the SAME runBacktest() function as the risk-budgeting page.
  * 
- * KEY PRINCIPLES:
- * 1. Start with fixed weights (target allocation)
- * 2. Calculate daily portfolio returns (weighted sum of asset returns)
- * 3. Allow weights to drift naturally due to price movements
- * 4. Every quarter: rebalance back to target weights (with 0.1% transaction cost)
- * 5. Track portfolio value, volatility, Sharpe ratio at each rebalance
- * 
- * This ensures the Portfolio Detail page shows the SAME data as Risk Budgeting generation.
+ * Weights are maintained through quarterly rebalancing (not recalculated).
  */
 
 export async function POST(req: NextRequest) {
@@ -37,13 +31,13 @@ export async function POST(req: NextRequest) {
       
       if (!response.ok) {
         console.warn(`Failed to fetch ${symbol}`);
-        return { symbol, prices: [], dividends: [] };
+        return { symbol, prices: [], dates: [], dividends: [] };
       }
       
       const data = await response.json();
       const result = data.chart?.result?.[0];
       
-      if (!result) return { symbol, prices: [], dividends: [] };
+      if (!result) return { symbol, prices: [], dates: [], dividends: [] };
       
       const timestamps = result.timestamp || [];
       const closes = result.indicators?.quote?.[0]?.close || [];
@@ -55,235 +49,146 @@ export async function POST(req: NextRequest) {
         dividendMap.set(parseInt(timestamp), (divData as any).amount || 0);
       }
       
-      const prices = timestamps.map((ts: number, i: number) => ({
-        date: new Date(ts * 1000).toISOString().split('T')[0],
-        price: closes[i],
-        dividend: dividendMap.get(ts) || 0
-      })).filter((p: any) => p.price != null);
+      const prices: number[] = [];
+      const dates: string[] = [];
+      const dividends: number[] = [];
       
-      return { symbol, prices };
+      for (let i = 0; i < closes.length; i++) {
+        if (closes[i] !== null && closes[i] !== undefined) {
+          prices.push(closes[i]);
+          dates.push(new Date(timestamps[i] * 1000).toISOString().split('T')[0]);
+          dividends.push(dividendMap.get(timestamps[i]) || 0);
+        }
+      }
+      
+      return { symbol, prices, dates, dividends };
     });
     
     const allData = await Promise.all(historicalDataPromises);
-    const priceData: Record<string, any[]> = {};
-    allData.forEach(item => {
-      priceData[item.symbol] = item.prices;
-    });
     
-    console.log('Fetched price data for', Object.keys(priceData).length, 'symbols');
+    console.log('Fetched data for', allData.length, 'symbols');
     
-    // STEP 2: Generate quarterly rebalancing dates
-    const rebalanceDates: string[] = [];
-    let currentDate = new Date(startDate);
-    currentDate.setMonth(Math.ceil((currentDate.getMonth() + 1) / 3) * 3);
-    currentDate.setDate(1);
-    const end = new Date(endDate);
-    
-    while (currentDate <= end) {
-      rebalanceDates.push(currentDate.toISOString().split('T')[0]);
-      currentDate.setMonth(currentDate.getMonth() + 3);
-    }
-    
-    console.log('Generated', rebalanceDates.length, 'rebalancing dates');
-    
-    // STEP 3: Calculate portfolio performance with rebalancing
-    // This is the CORE ECONOMIC MODEL
-    
-    let portfolioValue = 10000; // Start with $10,000
-    const targetWeights = weights.map((w: number) => w / 100); // Convert to decimal
-    let currentWeights = [...targetWeights]; // Start with target weights
-    const rebalancingData = [];
-    
-    // Get all unique dates from price data
+    // STEP 2: Align data to common dates
     const allDates = new Set<string>();
-    Object.values(priceData).forEach((prices: any[]) => {
-      prices.forEach(p => allDates.add(p.date));
+    allData.forEach(d => d.dates.forEach((date: string) => allDates.add(date)));
+    const commonDates = Array.from(allDates).sort();
+    
+    const pricesMap = new Map<string, number[]>();
+    const dividendsMap = new Map<string, number[]>();
+    
+    allData.forEach(({ symbol, prices, dates, dividends }) => {
+      const dateToPrice = new Map(dates.map((d: string, i: number) => [d, prices[i]]));
+      const dateToDividend = new Map(dates.map((d: string, i: number) => [d, dividends[i]]));
+      
+      const alignedPrices: number[] = [];
+      const alignedDividends: number[] = [];
+      
+      for (const date of commonDates) {
+        const price = dateToPrice.get(date);
+        if (price !== undefined) {
+          alignedPrices.push(price as number);
+          alignedDividends.push((dateToDividend.get(date) as number) || 0);
+        }
+      }
+      
+      if (alignedPrices.length > 0) {
+        pricesMap.set(symbol, alignedPrices);
+        dividendsMap.set(symbol, alignedDividends);
+      }
     });
-    const sortedDates = Array.from(allDates).sort();
     
-    console.log('Total trading days:', sortedDates.length);
+    console.log('Aligned to', commonDates.length, 'common dates');
     
-    // Track previous day's prices for return calculation
-    let prevPrices: Record<string, number> = {};
-    
-    // Initialize with first day's prices
-    symbols.forEach((symbol: string) => {
-      const prices = priceData[symbol] || [];
-      const firstPrice = prices.find(p => p.date >= sortedDates[0])?.price;
-      if (firstPrice) prevPrices[symbol] = firstPrice;
-    });
-    
-    // Process each rebalancing period
-    for (let rebalanceIdx = 0; rebalanceIdx < rebalanceDates.length; rebalanceIdx++) {
-      const rebalanceDate = rebalanceDates[rebalanceIdx];
-      const prevRebalanceDate = rebalanceIdx > 0 ? rebalanceDates[rebalanceIdx - 1] : startDate;
-      
-      // Find dates in this rebalancing period
-      const periodDates = sortedDates.filter(d => d > prevRebalanceDate && d <= rebalanceDate);
-      
-      // Track daily returns for volatility calculation
-      const dailyReturns: number[] = [];
-      
-      // Simulate each day in this period
-      for (const date of periodDates) {
-        let dailyPortfolioReturn = 0;
-        let validAssets = 0;
-        
-        // Calculate portfolio return for this day (including dividends)
-        symbols.forEach((symbol: string, idx: number) => {
-          const prices = priceData[symbol] || [];
-          const todayData = prices.find(p => p.date === date);
-          const todayPrice = todayData?.price || prevPrices[symbol];
-          const dividend = todayData?.dividend || 0;
-          const yesterdayPrice = prevPrices[symbol];
-          
-          if (todayPrice && yesterdayPrice && yesterdayPrice > 0) {
-            // Total return = price return + dividend yield
-            const priceReturn = (todayPrice - yesterdayPrice) / yesterdayPrice;
-            const dividendYield = dividend / yesterdayPrice;
-            const assetReturn = priceReturn + dividendYield;
-            
-            dailyPortfolioReturn += currentWeights[idx] * assetReturn;
-            validAssets++;
-            
-            // Update weight based on asset return (weight drift)
-            currentWeights[idx] = currentWeights[idx] * (1 + assetReturn);
-          }
-          
-          // Update previous price
-          if (todayPrice) prevPrices[symbol] = todayPrice;
-        });
-        
-        // Normalize weights (they should still sum to 1, but floating point errors)
-        const sumWeights = currentWeights.reduce((sum, w) => sum + w, 0);
-        if (sumWeights > 0) {
-          currentWeights = currentWeights.map(w => w / sumWeights);
-        }
-        
-        // Update portfolio value
-        if (validAssets > 0) {
-          portfolioValue *= (1 + dailyPortfolioReturn);
-          dailyReturns.push(dailyPortfolioReturn);
-        }
-      }
-      
-      // Calculate weight changes (drift) before rebalancing
-      const weightChanges = symbols.map((symbol: string, idx: number) => {
-        const beforeWeight = currentWeights[idx] * 100;
-        const afterWeight = targetWeights[idx] * 100;
-        const drift = beforeWeight - afterWeight;
-        
-        return {
-          symbol,
-          beforeWeight: beforeWeight.toFixed(2),
-          afterWeight: afterWeight.toFixed(2),
-          drift: drift.toFixed(2)
-        };
-      });
-      
-      // Calculate quarterly metrics
-      const qtrReturn = dailyReturns.reduce((sum, r) => sum + r, 0) * 100;
-      const avgReturn = dailyReturns.reduce((sum, r) => sum + r, 0) / (dailyReturns.length || 1);
-      const variance = dailyReturns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / (dailyReturns.length || 1);
-      const annualizedVol = Math.sqrt(variance * 252) * 100;
-      const sharpe = annualizedVol > 0 ? ((avgReturn * 252) / (annualizedVol / 100)) : 0;
-      
-      // Calculate correlation matrix for this period
-      const assetReturns: number[][] = symbols.map(() => []);
-      
-      // Collect daily returns for each asset in this period
-      for (const date of periodDates) {
-        symbols.forEach((symbol: string, idx: number) => {
-          const prices = priceData[symbol] || [];
-          const todayData = prices.find(p => p.date === date);
-          const todayPrice = todayData?.price;
-          const yesterdayPrice = prevPrices[symbol];
-          
-          if (todayPrice && yesterdayPrice && yesterdayPrice > 0) {
-            const priceReturn = (todayPrice - yesterdayPrice) / yesterdayPrice;
-            assetReturns[idx].push(priceReturn);
-          }
-        });
-      }
-      
-      // Calculate correlation matrix
-      const correlationMatrix: number[][] = [];
-      for (let i = 0; i < symbols.length; i++) {
-        const row: number[] = [];
-        for (let j = 0; j < symbols.length; j++) {
-          if (i === j) {
-            row.push(1); // Perfect correlation with self
-          } else {
-            const returnsI = assetReturns[i];
-            const returnsJ = assetReturns[j];
-            
-            if (returnsI.length > 1 && returnsJ.length > 1) {
-              const meanI = returnsI.reduce((sum, r) => sum + r, 0) / returnsI.length;
-              const meanJ = returnsJ.reduce((sum, r) => sum + r, 0) / returnsJ.length;
-              
-              let covariance = 0;
-              let varianceI = 0;
-              let varianceJ = 0;
-              
-              for (let k = 0; k < Math.min(returnsI.length, returnsJ.length); k++) {
-                const diffI = returnsI[k] - meanI;
-                const diffJ = returnsJ[k] - meanJ;
-                covariance += diffI * diffJ;
-                varianceI += diffI * diffI;
-                varianceJ += diffJ * diffJ;
-              }
-              
-              const stdI = Math.sqrt(varianceI);
-              const stdJ = Math.sqrt(varianceJ);
-              
-              const correlation = (stdI > 0 && stdJ > 0) ? covariance / (stdI * stdJ) : 0;
-              row.push(correlation);
-            } else {
-              row.push(0);
-            }
-          }
-        }
-        correlationMatrix.push(row);
-      }
-      
-      // Calculate average correlation (excluding diagonal)
-      let corrSum = 0;
-      let corrCount = 0;
-      for (let i = 0; i < correlationMatrix.length; i++) {
-        for (let j = 0; j < correlationMatrix[i].length; j++) {
-          if (i !== j) {
-            corrSum += correlationMatrix[i][j];
-            corrCount++;
-          }
-        }
-      }
-      const avgCorrelation = corrCount > 0 ? (corrSum / corrCount).toFixed(2) : "0.00";
-      
-      // Apply rebalancing: reset weights to target
-      currentWeights = [...targetWeights];
-      
-      // Apply transaction cost (0.1% of portfolio value)
-      portfolioValue *= 0.999;
-      
-      rebalancingData.push({
-        date: rebalanceDate,
-        portfolioValue: portfolioValue.toFixed(2),
-        weightChanges,
-        qtrReturn: qtrReturn.toFixed(2),
-        vol: annualizedVol.toFixed(2),
-        sharpe: sharpe.toFixed(2),
-        correlationMatrix: correlationMatrix,
-        avgCorrelation: avgCorrelation
-      });
-      
-      console.log(`Rebalance ${rebalanceIdx + 1}: Date=${rebalanceDate}, Value=$${portfolioValue.toFixed(2)}, Return=${qtrReturn.toFixed(2)}%`);
+    // Validate we have data for all symbols
+    if (commonDates.length === 0) {
+      return NextResponse.json(
+        { error: 'No overlapping dates found between assets. Try a different date range.' },
+        { status: 400 }
+      );
     }
     
-    console.log('=== CALCULATION COMPLETE ===');
-    console.log('Final portfolio value:', portfolioValue.toFixed(2));
-    console.log('Total rebalances:', rebalancingData.length);
+    for (const symbol of symbols) {
+      const prices = pricesMap.get(symbol);
+      if (!prices || prices.length === 0) {
+        return NextResponse.json(
+          { error: `No price data available for ${symbol} in the specified date range` },
+          { status: 400 }
+        );
+      }
+    }
     
-    return NextResponse.json({ rebalancingData });
+    // STEP 3: Run backtest with fixed weights (SAME as risk-budgeting page)
+    const targetWeights = weights.map((w: number) => w / 100);
+    
+    const backtest = runBacktest(
+      pricesMap,
+      dividendsMap,
+      commonDates,
+      targetWeights,
+      symbols,
+      { frequency: 'quarterly', transactionCost: 0.001 },
+      10000,
+      true  // Always reinvest dividends (tracks shadow portfolio internally)
+    );
+    
+    console.log('Backtest completed');
+    console.log('Final value:', backtest.finalValue);
+    console.log('Rebalancing events:', backtest.rebalanceDates?.length);
+    
+    // STEP 4: Format rebalancing events
+    const rebalancingData = backtest.rebalanceDates?.map((rebalance, idx) => ({
+      date: rebalance.date,
+      portfolioValue: rebalance.portfolioValue.toFixed(2),
+      weightChanges: rebalance.changes,
+      qtrReturn: rebalance.quarterlyReturn?.toFixed(2) || "0.00",
+      vol: rebalance.volatility?.toFixed(2) || "0.00",
+      sharpe: rebalance.sharpe?.toFixed(2) || "0.00",
+      // Store prices at this rebalance date for drift calculation
+      pricesAtRebalance: symbols.reduce((acc: Record<string, number>, symbol: string) => {
+        const prices = pricesMap.get(symbol);
+        if (prices && commonDates) {
+          const dateIndex = commonDates.indexOf(rebalance.date);
+          if (dateIndex >= 0 && dateIndex < prices.length) {
+            acc[symbol] = prices[dateIndex];
+          }
+        }
+        return acc;
+      }, {} as Record<string, number>),
+      // Store risk contribution at rebalance (from ERC optimization)
+      riskContributions: rebalance.changes.reduce((acc: Record<string, number>, change: any) => {
+        // In ERC portfolios, risk contribution ≈ weight at rebalance
+        acc[change.symbol || change.ticker] = parseFloat(change.afterWeight);
+        return acc;
+      }, {} as Record<string, number>),
+      // Add dividend data on the last rebalancing event
+      dividendCash: idx === (backtest.rebalanceDates?.length || 0) - 1 
+        ? backtest.dividendCash 
+        : undefined,
+      shadowPortfolioValue: idx === (backtest.rebalanceDates?.length || 0) - 1
+        ? backtest.shadowPortfolioValue
+        : undefined,
+      shadowDividendCash: idx === (backtest.rebalanceDates?.length || 0) - 1
+        ? backtest.dividendCashIfReinvested
+        : undefined,
+    })) || [];
+
+    // STEP 5: Get today's data (most recent trading day)
+    const mostRecentDate = commonDates[commonDates.length - 1];
+    const todaysPrices: Record<string, number> = {};
+    symbols.forEach((symbol: string) => {
+      const prices = pricesMap.get(symbol);
+      if (prices && prices.length > 0) {
+        todaysPrices[symbol] = prices[prices.length - 1];
+      }
+    });
+
+    return NextResponse.json({
+      rebalancingData,
+      portfolioValues: backtest.portfolioValues,
+      dates: commonDates,
+      mostRecentDate,
+      todaysPrices, // Today's closing prices for drift calculation
+    });
     
   } catch (error: any) {
     console.error('Error calculating rebalancing data:', error);
