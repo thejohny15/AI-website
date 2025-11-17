@@ -147,6 +147,11 @@ function RiskBudgetingPageContent() {
     try {
       setSaving(true);
 
+      console.log('=== SAVING PORTFOLIO ===');
+      console.log('Results object:', results);
+      console.log('Has analytics?', results.analytics);
+      console.log('Has backtest?', results.analytics?.backtest);
+
       // Convert results to holdings format compatible with portfolio store
       const holdings = results.weights.map((w: any) => ({
         symbol: w.ticker,
@@ -173,11 +178,43 @@ function RiskBudgetingPageContent() {
         avgCorrelation: results.avgCorrelation || undefined,
       };
 
-      // Update the portfolio with the risk budgeting results
-      updatePortfolio(userId, pid, {
+      // Save backtest results from API response
+      const backtestResults = results.analytics?.backtest ? {
+        portfolioValues: results.analytics.backtest.portfolioValues,
+        dates: results.analytics.backtest.dates,
+        finalValue: parseFloat(results.analytics.backtest.finalValue),
+        totalReturn: parseFloat(results.analytics.backtest.totalReturn),
+        annualizedReturn: parseFloat(results.analytics.backtest.annualizedReturn),
+        annualizedVolatility: parseFloat(results.analytics.backtest.annualizedVolatility),
+        sharpeRatio: parseFloat(results.analytics.backtest.sharpeRatio),
+        maxDrawdown: parseFloat(results.analytics.backtest.maxDrawdown),
+        rebalanceDates: results.analytics.backtest.rebalanceDates,
+        dividendCash: results.analytics.backtest.dividendCash,
+        dividendCashIfReinvested: results.analytics.backtest.dividendCashIfReinvested,
+        shadowPortfolioValue: results.analytics.backtest.shadowPortfolioValue,
+        shadowTotalReturn: results.analytics.backtest.shadowTotalReturn,
+      } : undefined;
+
+      console.log('Backtest results to save:', backtestResults);
+      console.log('Has rebalanceDates?', backtestResults?.rebalanceDates?.length);
+
+      // Save backtest date range
+      const backtestStartDate = results.analytics?.backtest?.dates?.[0];
+      const backtestEndDate = results.analytics?.backtest?.dates?.[results.analytics.backtest.dates.length - 1];
+
+      console.log('Backtest date range:', backtestStartDate, 'to', backtestEndDate);
+
+      // Update the portfolio with the risk budgeting results AND backtest data
+      const updated = updatePortfolio(userId, pid, {
         proposalHoldings: holdings,
         proposalSummary: summary,
+        backtestResults: backtestResults,
+        backtestStartDate: backtestStartDate,
+        backtestEndDate: backtestEndDate,
       });
+
+      console.log('Portfolio updated:', updated);
+      console.log('Saved backtestResults:', updated?.backtestResults);
 
       // Navigate to dashboard detail page
       router.push(`/dashboard/${pid}`);

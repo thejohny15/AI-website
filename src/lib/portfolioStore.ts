@@ -37,6 +37,23 @@ export type Portfolio = {
   // Backtest period (for matching full-analysis historical performance)
   backtestStartDate?: string; // Start date of backtest period from portfolio generation
   backtestEndDate?: string; // End date of backtest period from portfolio generation
+  
+  // Backtest results (saved from /api/risk-budgeting)
+  backtestResults?: {
+    portfolioValues: number[];
+    dates: string[];
+    finalValue: number;
+    totalReturn: number;
+    annualizedReturn: number;
+    annualizedVolatility: number;
+    sharpeRatio: number;
+    maxDrawdown: number;
+    rebalanceDates?: any[]; // Rebalancing events with all details
+    dividendCash?: number;
+    dividendCashIfReinvested?: number;
+    shadowPortfolioValue?: number;
+    shadowTotalReturn?: number;
+  };
 
   // ...existing fields...
   currentHoldings?: { symbol: string; shares: number; buyPrice: number; note?: string }[];

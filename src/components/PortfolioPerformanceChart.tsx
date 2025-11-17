@@ -7,13 +7,18 @@ interface PortfolioPerformanceChartProps {
   lookbackPeriod: string;
   createdAt: string;
   rebalancingDates?: string[]; // Array of rebalancing dates in ISO format
+  savedBacktestData?: {
+    portfolioValues: number[];
+    dates: string[];
+  };
 }
 
 export default function PortfolioPerformanceChart({ 
   holdings, 
   lookbackPeriod, 
   createdAt,
-  rebalancingDates = []
+  rebalancingDates = [],
+  savedBacktestData
 }: PortfolioPerformanceChartProps) {
   const [chartData, setChartData] = useState<{ dates: string[], values: number[], creationIndex: number } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -21,6 +26,27 @@ export default function PortfolioPerformanceChart({
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
 
   useEffect(() => {
+    // If we have saved backtest data, use it directly
+    if (savedBacktestData?.portfolioValues && savedBacktestData?.dates) {
+      console.log('✅ Using saved backtest data for chart');
+      console.log('Data points:', savedBacktestData.portfolioValues.length);
+      
+      const creationDate = new Date(createdAt).toISOString().split('T')[0];
+      const creationIndex = savedBacktestData.dates.findIndex(d => d >= creationDate);
+      
+      setChartData({
+        dates: savedBacktestData.dates,
+        values: savedBacktestData.portfolioValues,
+        creationIndex
+      });
+      setLastUpdate(new Date());
+      setLoading(false);
+      return;
+    }
+    
+    // Fallback: fetch and calculate (for old portfolios without saved data)
+    console.log('⚠️ No saved backtest data, fetching from API (fallback)');
+    
     async function fetchPerformanceData() {
       setLoading(true);
       try {
@@ -100,7 +126,7 @@ export default function PortfolioPerformanceChart({
     fetchPerformanceData();
 
     return () => {};
-  }, [holdings, lookbackPeriod, createdAt]);
+  }, [holdings, lookbackPeriod, createdAt, savedBacktestData]);
 
   if (loading && !chartData) {
     return (

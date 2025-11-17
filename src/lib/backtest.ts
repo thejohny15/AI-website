@@ -11,55 +11,51 @@ import {
  * 
  * This module provides functions for:
  * - Historical portfolio simulation
- * - Rebalancing strategies
+ * - Rebalancing strategies (QARM methodology)
  * - Performance metrics calculation
  * - Stress testing
  * 
  * =============================================================================
- * HOW THIS WORKS - DETAILED EXPLANATION:
+ * QARM METHODOLOGY - HOW THIS WORKS:
  * =============================================================================
  * 
- * The backtest engine simulates how a portfolio would have performed historically.
- * Think of it like a time machine that invests $10,000 and tracks it day-by-day.
+ * QARM (Quantitative Asset Risk Management) uses Equal Risk Contribution (ERC)
+ * with quarterly rebalancing to maintain balanced risk across assets.
  * 
- * KEY CONCEPTS:
+ * KEY PRINCIPLES:
  * 
- * 1. PORTFOLIO VALUE TRACKING
+ * 1. EQUAL RISK CONTRIBUTION (ERC)
+ *    - Each asset contributes EQUALLY to total portfolio risk
+ *    - Not equal weights - equal risk
+ *    - Lower volatility assets get higher weights
+ *    - Higher volatility assets get lower weights
+ * 
+ * 2. DYNAMIC WEIGHT RECALCULATION
+ *    - Every quarter: recalculate optimal weights
+ *    - Why? Volatilities and correlations change over time
+ *    - Uses rolling window matching USER'S selected lookback period (1y, 3y, or 5y)
+ *    - Maintains ERC principle with current market conditions
+ * 
+ * 3. DATA SPLIT AND BACKTEST PURPOSE
+ *    - TODAY'S PORTFOLIO: Uses most recent N years (e.g., 2020-2025)
+ *      → Optimized weights shown to user for their current portfolio
+ *    - BACKTEST (HISTORICAL PERFORMANCE): Uses older data (e.g., 2015-2020)
+ *      → Creates the historical performance chart shown on Dashboard and Full Analysis
+ *      → Shows how the strategy would have performed in the past
+ *      → Validates the strategy on out-of-sample historical data
+ * 
+ * 4. REBALANCING PROCESS (Quarterly)
+ *    - Calculate recent covariance matrix using user's selected lookback period
+ *    - Re-optimize weights using ERC
+ *    - Sell all positions
+ *    - Buy back at new optimal weights
+ *    - Deduct transaction costs (0.1%)
+ * 
+ * 5. PORTFOLIO VALUE TRACKING
  *    - Start with $10,000 cash
  *    - Buy shares of each asset based on target weights
  *    - Each day: Portfolio Value = Σ(shares × current_price)
- * 
- * 2. REBALANCING
- *    - Over time, some assets grow faster than others
- *    - Weights drift away from targets
- *    - Periodically (quarterly): sell everything, buy back at target weights
- *    - This is how institutional portfolios maintain risk balance
- * 
- * 3. TRANSACTION COSTS
- *    - Real trading has costs (0.1% in our model)
- *    - Each rebalance: deduct cost from each trade
- *    - This makes backtest more realistic
- * 
- * 4. RETURN CALCULATION
- *    - Daily return = (today_value - yesterday_value) / yesterday_value
- *    - Annualized = compound these daily returns over a year
- *    - Formula: (1 + total_return)^(1/years) - 1
- * 
- * 5. VOLATILITY (RISK)
- *    - Standard deviation of daily returns
- *    - Annualized by multiplying by √252 (trading days/year)
- *    - Higher vol = more unpredictable returns
- * 
- * 6. SHARPE RATIO
- *    - Return per unit of risk
- *    - Formula: Annual Return / Annual Volatility
- *    - Higher is better (more reward for the risk taken)
- * 
- * 7. MAX DRAWDOWN
- *    - Worst peak-to-trough decline
- *    - Track running maximum value
- *    - At each point: drawdown = (peak - current) / peak
- *    - Max DD = worst of all drawdowns
+ *    - Reinvest dividends automatically (DRIP)
  * 
  * =============================================================================
  */
@@ -157,14 +153,15 @@ export interface RebalanceConfig {
  */
 export function runBacktest(
   pricesMap: Map<string, number[]>, // ticker -> price array
-  dividendsMap: Map<string, number[]>, // ticker -> dividend array (NEW!)
+  dividendsMap: Map<string, number[]>, // ticker -> dividend array
   dates: string[],
   initialWeights: number[], // Initial weights (renamed for clarity)
   tickers: string[],
   rebalanceConfig: RebalanceConfig,
   initialValue: number = 10000,
-  reinvestDividends: boolean = true,  // NEW: control whether to reinvest or just track
-  targetBudgets?: number[]  // NEW: custom risk budgets for rebalancing (optional)
+  reinvestDividends: boolean = true,  // control whether to reinvest or just track
+  targetBudgets?: number[],  // custom risk budgets for rebalancing (optional)
+  lookbackPeriodYears?: number  // NEW: User's selected lookback period (1, 3, or 5 years)
 ): BacktestResult {
   const n = dates.length;
   const portfolioValues: number[] = [initialValue];
@@ -297,24 +294,29 @@ export function runBacktest(
     portfolioValues.push(portfolioValue);
     
     // STEP 4: Check for rebalancing
-    // REBALANCING LOGIC:
-    // - If quarterly: happens every ~60 trading days
-    // - Purpose: weights drift over time (winners grow, losers shrink)
-    // - Rebalancing brings them back to targets
+    // QARM REBALANCING LOGIC:
+    // - Quarterly rebalancing (~60 trading days)
+    // - Purpose: maintain Equal Risk Contribution as market conditions change
     // 
-    // DYNAMIC REBALANCING:
-    // - Recalculate optimal weights based on recent market data
-    // - Use rolling 1-year window (252 trading days)
-    // - Re-optimize using ERC with current correlations
+    // DYNAMIC WEIGHT RECALCULATION (QARM Methodology):
+    // - Recalculate optimal ERC weights based on recent market data
+    // - Use rolling window matching user's selected lookback period:
+    //   * 1 year = 252 trading days
+    //   * 3 years = 756 trading days  
+    //   * 5 years = 1260 trading days
+    // - Re-optimize to maintain equal risk contribution
+    // - Weights change because volatilities/correlations change
     // 
-    // Example: Started 25/25/25/25, but market changed
-    // Bonds more volatile → bonds get LOWER weight
-    // Stocks less volatile → stocks get HIGHER weight
+    // Example: Started 25/25/25/25 (equal risk)
+    // After 3 months: bonds become more volatile
+    // New ERC optimization: bonds get LOWER weight (to maintain equal risk)
+    // Stocks become less volatile → stocks get HIGHER weight
+    // Result: 30/30/20/20 (still equal risk contribution)
     if (shouldRebalance(dates[t], lastRebalanceDate, rebalanceConfig.frequency)) {
       // DYNAMIC WEIGHT CALCULATION:
-      // Use the last 252 days (1 year) to calculate new optimal weights
-      
-      const lookbackWindow = Math.min(252, t); // Use up to 1 year of data
+      // Use user's selected lookback period (1y, 3y, or 5y)
+      const lookbackDays = lookbackPeriodYears ? lookbackPeriodYears * 252 : 252; // Default to 1 year if not specified
+      const lookbackWindow = Math.min(lookbackDays, t); // Use up to lookback period or available data
       const startIdx = Math.max(0, t - lookbackWindow);
       
       // Extract recent price data for each asset
@@ -739,7 +741,8 @@ export function compareStrategies(
   riskBudgetWeights: number[],
   rebalanceConfig: RebalanceConfig,
   reinvestDividends: boolean = true,
-  targetBudgets?: number[]  // NEW: custom risk budgets
+  targetBudgets?: number[],  // custom risk budgets
+  lookbackPeriodYears?: number  // NEW: User's selected lookback period
 ): {
   riskBudgeting: BacktestResult;
   equalWeight: BacktestResult;
@@ -755,13 +758,25 @@ export function compareStrategies(
     rebalanceConfig, 
     10000, 
     reinvestDividends,
-    targetBudgets  // Pass custom budgets for dynamic rebalancing
+    targetBudgets,  // Pass custom budgets for dynamic rebalancing
+    lookbackPeriodYears  // Pass user's lookback period
   );
   
   // Equal Weight strategy (naive 1/N allocation)
   // Simply divide money equally: 1/N for N assets
   const equalWeights = Array(tickers.length).fill(1 / tickers.length);
-  const equalWeight = runBacktest(pricesMap, dividendsMap, dates, equalWeights, tickers, rebalanceConfig, 10000, reinvestDividends);
+  const equalWeight = runBacktest(
+    pricesMap, 
+    dividendsMap, 
+    dates, 
+    equalWeights, 
+    tickers, 
+    rebalanceConfig, 
+    10000, 
+    reinvestDividends,
+    undefined,  // No custom budgets for equal weight
+    lookbackPeriodYears  // Use same lookback period for fair comparison
+  );
   
   // Could add more strategies here:
   // - 60/40 (60% stocks, 40% bonds)

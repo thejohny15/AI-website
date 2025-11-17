@@ -198,26 +198,37 @@ export async function POST(req: NextRequest) {
     const { prices: alignedPrices, dividends: alignedDividends } = alignPriceSeries(dataMap);
     console.log("Aligned to common dates, points per asset:", Array.from(alignedPrices.values())[0].length);
     
-    // Split data: first half for optimization, second half for backtest
+    // Split data for QARM out-of-sample validation
+    // OLDER data (2015-2020): Calculate backtest initial weights
+    // RECENT data (2020-2025): Calculate today's portfolio AND run backtest simulation
     const totalPoints = Array.from(alignedPrices.values())[0].length;
-    const optimizationPoints = Math.floor(totalPoints / 2); // Split 50/50
+    const splitPoint = Math.floor(totalPoints / 2); // Split 50/50
     
-    console.log(`Splitting data: ${optimizationPoints} points for optimization, ${totalPoints - optimizationPoints} points for backtest`);
+    console.log(`\n=== QARM DATA SPLIT (OUT-OF-SAMPLE) ===`);
+    console.log(`Total data points: ${totalPoints}`);
+    console.log(`OLDER PERIOD (first half): ${splitPoint} points → calculate backtest initial weights`);
+    console.log(`RECENT PERIOD (second half): ${totalPoints - splitPoint} points → today's portfolio + backtest simulation`);
     
-    // Create optimization data (first N points)
-    const optimizationPrices = new Map<string, number[]>();
-    const optimizationDividends = new Map<string, number[]>();
+    // OLDER data: for calculating backtest initial weights (2015-2020)
+    const backtestWeightsPrices = new Map<string, number[]>();
     for (const [ticker, prices] of alignedPrices.entries()) {
-      optimizationPrices.set(ticker, prices.slice(0, optimizationPoints));
-      optimizationDividends.set(ticker, alignedDividends.get(ticker)!.slice(0, optimizationPoints));
+      backtestWeightsPrices.set(ticker, prices.slice(0, splitPoint));
     }
     
-    // Create backtest data (remaining points)
+    // RECENT data: for today's portfolio optimization (2020-2025)
+    const todaysPrices = new Map<string, number[]>();
+    const todaysDividends = new Map<string, number[]>();
+    for (const [ticker, prices] of alignedPrices.entries()) {
+      todaysPrices.set(ticker, prices.slice(splitPoint));
+      todaysDividends.set(ticker, alignedDividends.get(ticker)!.slice(splitPoint));
+    }
+    
+    // RECENT data: for backtest simulation (same as today's - 2020-2025)
     const backtestPrices = new Map<string, number[]>();
     const backtestDividends = new Map<string, number[]>();
     for (const [ticker, prices] of alignedPrices.entries()) {
-      backtestPrices.set(ticker, prices.slice(optimizationPoints));
-      backtestDividends.set(ticker, alignedDividends.get(ticker)!.slice(optimizationPoints));
+      backtestPrices.set(ticker, prices.slice(splitPoint));
+      backtestDividends.set(ticker, alignedDividends.get(ticker)!.slice(splitPoint));
     }
     
     // Calculate returns for each asset (using ONLY optimization period data)
@@ -231,14 +242,44 @@ export async function POST(req: NextRequest) {
     // 2. TOTAL returns (with dividends) → for expected return calculation
     //    - This is what investors actually earn
     //    - Used for performance metrics and Sharpe ratio
+    
+    // ============================================================================
+    // STEP 1: Calculate BACKTEST INITIAL WEIGHTS using OLDER data (2015-2020)
+    // ============================================================================
+    console.log("\n=== CALCULATING BACKTEST INITIAL WEIGHTS (from older period) ===");
+    const backtestWeightsReturns: number[][] = [];
+    const backtestTickers: string[] = [];
+    
+    for (const asset of assetClasses) {
+      const prices = backtestWeightsPrices.get(asset.ticker)!;
+      const priceReturns = calculateReturns(prices); // Price returns only
+      backtestWeightsReturns.push(priceReturns);
+      backtestTickers.push(asset.ticker);
+    }
+    
+    const backtestCovMatrix = calculateCovarianceMatrix(backtestWeightsReturns);
+    const backtestTargetBudgets = customBudgets 
+      ? customBudgets.map((b: number) => b / 100)
+      : undefined;
+    const backtestOptimization = optimizeERC(backtestCovMatrix, 1000, 1e-6, backtestTargetBudgets);
+    const backtestInitialWeights = backtestOptimization.weights;
+    
+    console.log("Backtest initial weights (from older period):", 
+      backtestInitialWeights.map((w, i) => `${backtestTickers[i]}: ${(w * 100).toFixed(2)}%`).join(", "));
+    console.log("These will be used to start the 2020-2025 simulation");
+    
+    // ============================================================================
+    // STEP 2: Calculate TODAY'S PORTFOLIO WEIGHTS using RECENT data (2020-2025)
+    // ============================================================================
+    console.log("\n=== CALCULATING TODAY'S PORTFOLIO WEIGHTS (from recent period) ===");
     const priceReturnsData: number[][] = [];  // For risk/correlation (no dividends)
     const totalReturnsData: number[][] = [];  // For expected return (with dividends)
     const meanReturns: number[] = [];
     const tickers: string[] = [];
     
     for (const asset of assetClasses) {
-      const prices = optimizationPrices.get(asset.ticker)!;
-      const dividends = optimizationDividends.get(asset.ticker)!;
+      const prices = todaysPrices.get(asset.ticker)!;
+      const dividends = todaysDividends.get(asset.ticker)!;
       
       // Price returns ONLY (for covariance matrix and optimization)
       const priceReturns = calculateReturns(prices); // No dividends
@@ -330,26 +371,27 @@ export async function POST(req: NextRequest) {
     // Run backtest for advanced analytics
     console.log("Running historical backtest...");
     
-    // Use ONLY the backtest period (after optimization window)
-    const backtestDateArray = historicalData[0].dates.slice(optimizationPoints);
+    // Use backtest period (RECENT data 2020-2025) with BACKTEST INITIAL WEIGHTS (from older 2015-2020)
+    const backtestDateArray = historicalData[0].dates.slice(splitPoint);
     
-    console.log(`Backtest period: ${backtestDateArray[0]} to ${backtestDateArray[backtestDateArray.length - 1]} (${backtestDateArray.length} days)`);
+    console.log(`Backtest simulation period: ${backtestDateArray[0]} to ${backtestDateArray[backtestDateArray.length - 1]} (${backtestDateArray.length} days)`);
+    console.log(`Using initial weights optimized from older period (2015-2020) - OUT-OF-SAMPLE TEST`);
+    console.log(`Today's portfolio optimized on: ${historicalData[0].dates[splitPoint]} to ${historicalData[0].dates[historicalData[0].dates.length - 1]}`);
     
-    // Convert custom budgets to decimal format for backtest if provided
-    const backtestTargetBudgets = customBudgets 
-      ? customBudgets.map((b: number) => b / 100)
-      : undefined;
+    // Convert lookback period to years for backtest
+    const lookbackYears = lookbackPeriod === '1y' ? 1 : lookbackPeriod === '3y' ? 3 : 5;
     
     const backtest = runBacktest(
-      backtestPrices,  // Use only backtest period prices
-      backtestDividends,  // Always pass dividend data (for tracking cash)
-      backtestDateArray,  // Use only backtest period dates
-      optimization.weights,  // Initial weights
+      backtestPrices,  // Use RECENT period prices (2020-2025)
+      backtestDividends,  // Use RECENT period dividends
+      backtestDateArray,  // Use RECENT period dates
+      backtestInitialWeights,  // Use weights from OLDER period (2015-2020) - KEY CHANGE!
       tickers,
       { frequency: 'quarterly', transactionCost: 0.001 },
       10000,
       includeDividends,  // Control reinvestment based on user preference
-      backtestTargetBudgets  // Pass custom budgets for dynamic rebalancing
+      backtestTargetBudgets,  // Pass custom budgets for dynamic rebalancing
+      lookbackYears  // Pass lookback period for quarterly rebalancing
     );
     
     // Strategy comparison (also on backtest period only)
@@ -359,10 +401,11 @@ export async function POST(req: NextRequest) {
       backtestDividends,  // Always pass dividend data
       backtestDateArray,  // Use only backtest period dates
       tickers,
-      optimization.weights,
+      backtestInitialWeights,  // Use backtest initial weights for fair comparison
       { frequency: 'quarterly', transactionCost: 0.001 },
       includeDividends,  // Control reinvestment based on user preference
-      backtestTargetBudgets  // Pass custom budgets for dynamic rebalancing
+      backtestTargetBudgets,  // Pass custom budgets for dynamic rebalancing
+      lookbackYears  // Pass lookback period for quarterly rebalancing
     );
     
     // Find worst crisis period

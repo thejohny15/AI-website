@@ -114,6 +114,59 @@ export default function PortfolioDetail() {
   useEffect(() => {
     if (!p || !p.proposalHoldings || !p.proposalSummary) return;
     
+    // If we have saved backtest results, use them instead of recalculating
+    if (p.backtestResults?.rebalanceDates) {
+      console.log('✅ Using saved backtest results from portfolio creation');
+      console.log('Saved rebalance events:', p.backtestResults.rebalanceDates.length);
+      
+      // Map saved rebalancing events to display format
+      const mappedData = p.backtestResults.rebalanceDates.map((rebalance: any, idx: number) => {
+        console.log(`Rebalance #${idx + 1}:`, rebalance);
+        
+        return {
+          date: rebalance.date,
+          portfolioValue: rebalance.portfolioValue.toFixed(2),
+          weightChanges: rebalance.changes || [],
+          qtrReturn: rebalance.quarterlyReturn?.toFixed(2) || "0.00",
+          vol: rebalance.volatility?.toFixed(2) || "0.00",
+          sharpe: rebalance.sharpe?.toFixed(2) || "0.00",
+          // Extract prices at rebalance from the changes data
+          pricesAtRebalance: (rebalance.changes || []).reduce((acc: Record<string, number>, change: any) => {
+            // Store the price at this rebalance point (calculated from portfolio value and weight)
+            const ticker = change.symbol || change.ticker;
+            if (ticker) {
+              // Approximate price from portfolio value and after-weight
+              acc[ticker] = 0; // Will be updated with actual prices from quotes
+            }
+            return acc;
+          }, {} as Record<string, number>),
+          riskContributions: (rebalance.changes || []).reduce((acc: Record<string, number>, change: any) => {
+            const ticker = change.symbol || change.ticker;
+            if (ticker) {
+              acc[ticker] = parseFloat(change.afterWeight);
+            }
+            return acc;
+          }, {} as Record<string, number>),
+          // Add dividend data on last rebalance
+          dividendCash: idx === p.backtestResults!.rebalanceDates!.length - 1 
+            ? p.backtestResults?.dividendCash 
+            : undefined,
+          shadowPortfolioValue: idx === p.backtestResults!.rebalanceDates!.length - 1
+            ? p.backtestResults?.shadowPortfolioValue
+            : undefined,
+          shadowDividendCash: idx === p.backtestResults!.rebalanceDates!.length - 1
+            ? p.backtestResults?.dividendCashIfReinvested
+            : undefined,
+        };
+      });
+      
+      console.log('Mapped rebalancing data:', mappedData);
+      setHistoricalRebalancingData(mappedData);
+      setLoadingRebalancing(false);
+      return;
+    }
+    
+    // Fallback: calculate from API if no saved results (for old portfolios)
     async function fetchRebalancingData() {
       setLoadingRebalancing(true);
       try {
@@ -275,39 +328,107 @@ export default function PortfolioDetail() {
         {p.proposalSummary && (
           <div className="mb-6 rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
             <h2 className="text-2xl font-bold text-white mb-4">Portfolio Summary</h2>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {isRiskBudgeting ? (
-                <>
-                  <MetricBox label="Methodology" value={summary.methodology} />
-                  <MetricBox label="Portfolio Volatility" value={summary.portfolioVolatility} />
-                  <MetricBox label="Sharpe Ratio" value={summary.sharpeRatio} />
-                  <MetricBox label="Expected Return" value={summary.expectedReturn} />
-                  <MetricBox label="Max Drawdown" value={summary.maxDrawdown} />
+            
+            {isRiskBudgeting ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
+                  <MetricBox label="Strategy" value={summary.methodology || "Risk Budgeting"} />
                   <MetricBox 
-                    label="Optimization Status" 
-                    value={summary.optimization?.converged ? `Converged (${summary.optimization.iterations} iter)` : "Completed"} 
+                    label="Annual Volatility" 
+                    value={p.backtestResults?.annualizedVolatility 
+                      ? `${p.backtestResults.annualizedVolatility.toFixed(2)}%` 
+                      : summary.portfolioVolatility} 
                   />
-                  <MetricBox label="Data As Of" value={summary.dataAsOf} />
-                </>
-              ) : typeof summary === "string" ? (
-                <p className="text-zinc-700 leading-relaxed">{summary}</p>
-              ) : (
-                <div className="space-y-4 text-zinc-700">
-                  {summary["Economic Thesis"] && (
-                    <div>
-                      <h3 className="font-semibold">Economic Thesis</h3>
-                      <p>{summary["Economic Thesis"]}</p>
-                    </div>
-                  )}
-                  {summary["Portfolio Logic"] && (
-                    <div>
-                      <h3 className="font-semibold">Portfolio Logic</h3>
-                      <p>{summary["Portfolio Logic"]}</p>
-                    </div>
-                  )}
+                  <MetricBox 
+                    label="Sharpe Ratio" 
+                    value={p.backtestResults?.sharpeRatio 
+                      ? p.backtestResults.sharpeRatio.toFixed(2) 
+                      : summary.sharpeRatio} 
+                  />
+                  <MetricBox 
+                    label="Annualized Return" 
+                    value={p.backtestResults?.annualizedReturn 
+                      ? `${p.backtestResults.annualizedReturn.toFixed(2)}%` 
+                      : summary.expectedReturn} 
+                  />
+                  <MetricBox 
+                    label="Max Drawdown" 
+                    value={p.backtestResults?.maxDrawdown 
+                      ? `${p.backtestResults.maxDrawdown.toFixed(2)}%` 
+                      : summary.maxDrawdown} 
+                  />
+                  <MetricBox label="Lookback Period" value={
+                    summary.lookbackPeriod === '1y' ? '1 Year' : 
+                    summary.lookbackPeriod === '3y' ? '3 Years' : 
+                    '5 Years'
+                  } />
+                  <MetricBox label="Optimization Date" value={summary.dataAsOf} />
+                  <MetricBox label="Asset Count" value={p.proposalHoldings?.length.toString() || '0'} />
                 </div>
-              )}
-            </div>
+                
+                {/* Info: Backtest vs Forward Estimates */}
+                {p.backtestResults && (
+                  <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-4 mb-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <svg className="w-5 h-5 text-blue-300" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                      </svg>
+                      <span className="text-sm font-semibold text-blue-200">Historical Performance</span>
+                    </div>
+                    <p className="text-xs text-blue-200/80">
+                      These metrics show <strong>actual historical performance</strong> from {p.backtestStartDate} to {p.backtestEndDate} based on real market data. 
+                      These are the results your portfolio would have achieved if you had invested during this period.
+                    </p>
+                  </div>
+                )}
+                
+                {/* Optimization Details */}
+                {summary.optimization && (
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      {summary.optimization.converged ? (
+                        <>
+                          <svg className="w-5 h-5 text-emerald-300" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
+                          <span className="text-sm font-semibold text-emerald-200">Optimization Successful</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5 text-amber-300" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                          </svg>
+                          <span className="text-sm font-semibold text-amber-200">Optimization Completed</span>
+                        </>
+                      )}
+                    </div>
+                    <p className="text-xs text-emerald-200/80">
+                      {summary.optimization.converged 
+                        ? `The algorithm converged after ${summary.optimization.iterations} iterations, finding the optimal Equal Risk Contribution weights where each asset contributes equally to portfolio risk.`
+                        : `Optimization completed in ${summary.optimization.iterations} iterations.`
+                      }
+                    </p>
+                  </div>
+                )}
+              </>
+            ) : typeof summary === "string" ? (
+              <p className="text-slate-200 leading-relaxed">{summary}</p>
+            ) : (
+              <div className="space-y-4 text-slate-200">
+                {summary["Economic Thesis"] && (
+                  <div>
+                    <h3 className="font-semibold text-white">Economic Thesis</h3>
+                    <p>{summary["Economic Thesis"]}</p>
+                  </div>
+                )}
+                {summary["Portfolio Logic"] && (
+                  <div>
+                    <h3 className="font-semibold text-white">Portfolio Logic</h3>
+                    <p>{summary["Portfolio Logic"]}</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -344,39 +465,11 @@ export default function PortfolioDetail() {
                 holdings={p.proposalHoldings} 
                 lookbackPeriod={p.proposalSummary?.lookbackPeriod || '5y'} 
                 createdAt={new Date(p.createdAt).toISOString()}
-                rebalancingDates={(() => {
-                  // Generate quarterly rebalancing for the entire historical period
-                  const dates: string[] = [];
-                  const lookback = p.proposalSummary?.lookbackPeriod || '5y';
-                  const today = new Date();
-                  const startDate = new Date();
-                  
-                  // Calculate start date based on lookback period
-                  switch(lookback) {
-                    case '1y':
-                      startDate.setFullYear(today.getFullYear() - 1);
-                      break;
-                    case '3y':
-                      startDate.setFullYear(today.getFullYear() - 3);
-                      break;
-                    case '5y':
-                    default:
-                      startDate.setFullYear(today.getFullYear() - 5);
-                      break;
-                  }
-                  
-                  // Generate quarterly rebalancing dates from start to today
-                  let currentDate = new Date(startDate);
-                  currentDate.setMonth(Math.ceil((currentDate.getMonth() + 1) / 3) * 3);
-                  currentDate.setDate(1);
-                  
-                  while (currentDate <= today) {
-                    dates.push(currentDate.toISOString());
-                    currentDate.setMonth(currentDate.getMonth() + 3);
-                  }
-                  
-                  return dates;
-                })()}
+                rebalancingDates={historicalRebalancingData.map(r => r.date)}
+                savedBacktestData={p.backtestResults ? {
+                  portfolioValues: p.backtestResults.portfolioValues,
+                  dates: p.backtestResults.dates
+                } : undefined}
               />
 
               {/* Historical Rebalancing Timeline - Directly under chart */}
@@ -703,48 +796,84 @@ export default function PortfolioDetail() {
 <div className="mb-6 grid gap-6 lg:grid-cols-2">
   {/* LEFT: Portfolio Allocation */}
   <div className="rounded-2xl border border-slate-600/50 bg-slate-800/60 p-6 backdrop-blur-xl shadow-2xl">
-    <h2 className="text-2xl font-bold text-white mb-2">Portfolio Allocation</h2>
-    {sinceCreationRebalancingData.length > 0 ? (
-      <>
-        <p className="text-sm text-slate-300 mb-4">
-          Last rebalanced: {new Date(sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].date).toLocaleDateString()}
-        </p>
-        <AllocationPieChart weights={sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1].weightChanges.map((wc: any) => ({
-          ticker: wc.ticker || wc.symbol,
-          name: wc.ticker || wc.symbol,
-          weight: wc.afterWeight,
-          riskContribution: wc.afterWeight
-        }))} />
-        <div className="mt-4 p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10">
-          <p className="text-xs text-emerald-200">
-            <strong>Dynamic Rebalancing:</strong> Portfolio rebalances quarterly (Jan 1, Apr 1, Jul 1, Oct 1) 
-            using updated market data. Weights are recalculated using Equal Risk Contribution (ERC) optimization 
-            based on the most recent volatility and correlation patterns. This ensures the portfolio adapts to 
-            changing market conditions while maintaining balanced risk across all assets.
-          </p>
-        </div>
-      </>
-    ) : (
-      <>
-        <p className="text-sm text-slate-300 mb-4">
-          Initial ERC allocation (created {new Date(p.createdAt).toLocaleDateString()})
-        </p>
-        <AllocationPieChart weights={p.proposalHoldings.map(h => ({
-          ticker: h.symbol,
-          name: h.symbol,
-          weight: h.weight.toString(),
-          riskContribution: h.weight.toString()
-        }))} />
-        <div className="mt-4 p-3 rounded-lg border border-blue-500/30 bg-blue-500/10">
-          <p className="text-xs text-blue-200">
-            <strong>Initial Allocation:</strong> Equal Risk Contribution (ERC) portfolio optimized at creation. 
-            Each asset contributes equally to total portfolio risk. Portfolio will automatically rebalance 
-            on the first day of the next quarter (Jan 1, Apr 1, Jul 1, or Oct 1) using updated market data 
-            to recalculate optimal weights based on current volatility and correlations.
-          </p>
-        </div>
-      </>
-    )}
+    <h2 className="text-2xl font-bold text-white mb-2">Current Target Allocation</h2>
+    {(() => {
+      // Determine which weights to show:
+      // If there's a rebalance AFTER portfolio creation, use that
+      // Otherwise, use the initial creation weights
+      const lastRebalance = sinceCreationRebalancingData.length > 0 
+        ? sinceCreationRebalancingData[sinceCreationRebalancingData.length - 1] 
+        : null;
+      
+      const creationDate = new Date(p.createdAt);
+      const lastRebalanceDate = lastRebalance ? new Date(lastRebalance.date) : null;
+      
+      // Use rebalance weights if a rebalance happened AFTER creation
+      const useRebalanceWeights = lastRebalanceDate && lastRebalanceDate > creationDate;
+      
+      if (useRebalanceWeights && lastRebalance) {
+        // Portfolio has been rebalanced since creation - show rebalance weights
+        return (
+          <>
+            <p className="text-sm text-slate-300 mb-4">
+              Last rebalanced: {new Date(lastRebalance.date).toLocaleDateString()} 
+              (weights recalculated with updated 5-year data)
+            </p>
+            <AllocationPieChart weights={lastRebalance.weightChanges.map((wc: any) => ({
+              ticker: wc.ticker || wc.symbol,
+              name: wc.ticker || wc.symbol,
+              weight: parseFloat(wc.afterWeight).toFixed(2),
+              riskContribution: parseFloat(wc.afterWeight).toFixed(2)
+            }))} />
+            <div className="mt-4 p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10">
+              <p className="text-xs text-emerald-200">
+                <strong>Quarterly Rebalancing:</strong> On {new Date(lastRebalance.date).toLocaleDateString()}, 
+                your portfolio was automatically rebalanced using the most recent 5-year volatility and correlation data. 
+                The ERC optimizer recalculated weights to ensure each asset contributes equally to risk. 
+                Next rebalance: {(() => {
+                  const next = new Date(lastRebalance.date);
+                  next.setMonth(next.getMonth() + 3);
+                  return next.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                })()}.
+              </p>
+            </div>
+          </>
+        );
+      } else {
+        // No rebalance since creation - show initial weights
+        return (
+          <>
+            <p className="text-sm text-slate-300 mb-4">
+              Optimized on {creationDate.toLocaleDateString()} using 5-year historical data
+            </p>
+            <AllocationPieChart weights={p.proposalHoldings.map(h => ({
+              ticker: h.symbol,
+              name: h.symbol,
+              weight: h.weight.toString(),
+              riskContribution: h.weight.toString()
+            }))} />
+            <div className="mt-4 p-3 rounded-lg border border-blue-500/30 bg-blue-500/10">
+              <p className="text-xs text-blue-200">
+                <strong>Initial Allocation:</strong> Your portfolio was optimized on {creationDate.toLocaleDateString()} using 
+                Equal Risk Contribution (ERC) with 5-year volatility and correlation data. Each asset contributes equally 
+                to portfolio risk. Your first automatic rebalance will occur on {(() => {
+                  const next = new Date(creationDate);
+                  // Find next quarter start (Jan 1, Apr 1, Jul 1, Oct 1)
+                  const month = next.getMonth();
+                  const quarterMonth = Math.ceil((month + 1) / 3) * 3; // Next quarter
+                  next.setMonth(quarterMonth);
+                  next.setDate(1);
+                  if (next <= creationDate) {
+                    next.setMonth(next.getMonth() + 3); // Move to next quarter if same/past
+                  }
+                  return next.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                })()}, when weights will be recalculated with updated market data.
+              </p>
+            </div>
+          </>
+        );
+      }
+    })()}
   </div>
 
   {/* RIGHT: Market Drift */}
@@ -1223,9 +1352,9 @@ function AllocationPieChart({ weights }: { weights: any[] }) {
 
 function MetricBox({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-      <div className="text-xs text-zinc-600 uppercase tracking-wide">{label}</div>
-      <div className="mt-1 text-lg font-bold text-zinc-900">{value}</div>
+    <div className="rounded-xl border border-slate-500/30 bg-slate-700/30 p-4">
+      <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">{label}</div>
+      <div className="text-lg font-bold text-white">{value}</div>
     </div>
   );
 }
