@@ -47,9 +47,9 @@ import {
  * 4. REBALANCING PROCESS (Quarterly)
  *    - Calculate recent covariance matrix using user's selected lookback period
  *    - Re-optimize weights using ERC
- *    - Sell all positions
- *    - Buy back at new optimal weights
- *    - Deduct transaction costs (0.1%)
+ *    - Calculate drift: how far each position moved from target
+ *    - Trade only the drift amount (buy/sell to restore balance)
+ *    - Deduct transaction costs (0.1% of traded amount, not full portfolio)
  * 
  * 5. PORTFOLIO VALUE TRACKING
  *    - Start with $10,000 cash
@@ -71,7 +71,10 @@ export interface RebalanceEvent {
     beforeWeight: number;
     afterWeight: number;
     drift: number;
+    tradeAmount?: number; // Dollar amount traded for this asset
   }[];
+  totalTradingVolume?: number; // Total $ amount of all trades
+  transactionCost?: number; // Total transaction costs paid
 }
 
 export interface BacktestResult {
@@ -161,7 +164,8 @@ export function runBacktest(
   initialValue: number = 10000,
   reinvestDividends: boolean = true,  // control whether to reinvest or just track
   targetBudgets?: number[],  // custom risk budgets for rebalancing (optional)
-  lookbackPeriodYears?: number  // NEW: User's selected lookback period (1, 3, or 5 years)
+  lookbackPeriodYears?: number,  // User's selected lookback period (1, 3, or 5 years)
+  maintainFixedWeights: boolean = false  // NEW: If true, maintain initial weights at rebalance (for equal weight strategy)
 ): BacktestResult {
   const n = dates.length;
   const portfolioValues: number[] = [initialValue];
@@ -208,9 +212,10 @@ export function runBacktest(
     return numShares;
   });
   
-  // Shadow portfolio: tracks share counts IF dividends were reinvested
-  // This runs in parallel ONLY when reinvestDividends=false to show opportunity cost
-  const shadowShares = !reinvestDividends ? [...shares] : [];  // Only initialize if needed
+  // ALWAYS track shadow portfolio for comparison (regardless of reinvestDividends setting)
+  // If reinvestDividends=true: shadow shows what happens WITHOUT reinvestment
+  // If reinvestDividends=false: shadow shows what happens WITH reinvestment
+  const shadowShares = [...shares];
   
   let rebalanceCount = 0;
   let lastRebalanceDate = dates[0];
@@ -256,23 +261,28 @@ export function runBacktest(
         totalDividendCash += dividendCash;
         
         if (reinvestDividends) {
-          // DRIP: Buy shares at yesterday's closing price
+          // USER CHOICE: DRIP - Buy shares at yesterday's closing price
           const prices = pricesMap.get(ticker)!;
           const buyPrice = prices[t - 1];
           const additionalShares = dividendCash / buyPrice;
           shares[i] += additionalShares;
-          // Cash is now converted to shares, not held separately
         } else {
-          // Accrue cash without reinvesting
+          // USER CHOICE: Cash - Accrue cash without reinvesting
           cashFromDividends += dividendCash;
         }
         
-        // Shadow portfolio (only when dividends OFF)
-        if (!reinvestDividends && shadowShares.length > 0) {
-          const shadowDividendCash = shadowShares[i] * dividendPerShare;
+        // ALWAYS track shadow portfolio (opposite of user's choice)
+        const shadowDividendCash = shadowShares[i] * dividendPerShare;
+        const prices = pricesMap.get(ticker)!;
+        const buyPrice = prices[t - 1];
+        
+        if (reinvestDividends) {
+          // User chose reinvest → shadow shows cash accumulation
           totalDividendCashIfReinvested += shadowDividendCash;
-          const prices = pricesMap.get(ticker)!;
-          const buyPrice = prices[t - 1];
+          // Shadow shares don't change (no reinvestment)
+        } else {
+          // User chose cash → shadow shows reinvestment
+          totalDividendCashIfReinvested += shadowDividendCash;
           const shadowAdditionalShares = shadowDividendCash / buyPrice;
           shadowShares[i] += shadowAdditionalShares;
         }
@@ -312,6 +322,11 @@ export function runBacktest(
     // New ERC optimization: bonds get LOWER weight (to maintain equal risk)
     // Stocks become less volatile → stocks get HIGHER weight
     // Result: 30/30/20/20 (still equal risk contribution)
+    // 
+    // SMART TRADING:
+    // - Only trade the DRIFT (difference between current and target)
+    // - Pay 0.1% fee ONLY on traded amount, not full portfolio
+    // - Much cheaper and more realistic than "sell all and rebuy"
     if (shouldRebalance(dates[t], lastRebalanceDate, rebalanceConfig.frequency)) {
       // DYNAMIC WEIGHT CALCULATION:
       // Use user's selected lookback period (1y, 3y, or 5y)
@@ -319,25 +334,36 @@ export function runBacktest(
       const lookbackWindow = Math.min(lookbackDays, t); // Use up to lookback period or available data
       const startIdx = Math.max(0, t - lookbackWindow);
       
-      // Extract recent price data for each asset
-      const recentReturnsData: number[][] = [];
-      for (const ticker of tickers) {
-        const prices = pricesMap.get(ticker)!;
-        const recentPrices = prices.slice(startIdx, t + 1);
-        const recentReturns = calculateReturns(recentPrices);
-        recentReturnsData.push(recentReturns);
+      let newTargetWeights: number[];
+      
+      if (maintainFixedWeights) {
+        // EQUAL WEIGHT STRATEGY: Always rebalance back to initial equal weights
+        // No optimization - just restore original allocation
+        newTargetWeights = [...initialWeights];
+        console.log(`  Equal weight rebalancing: maintaining ${(initialWeights[0] * 100).toFixed(1)}% per asset`);
+      } else {
+        // RISK BUDGETING STRATEGY: Dynamic ERC optimization
+        // Extract recent price data for each asset
+        const recentReturnsData: number[][] = [];
+        for (const ticker of tickers) {
+          const prices = pricesMap.get(ticker)!;
+          const recentPrices = prices.slice(startIdx, t + 1);
+          const recentReturns = calculateReturns(recentPrices);
+          recentReturnsData.push(recentReturns);
+        }
+        
+        // Calculate new covariance matrix from recent data
+        const recentCovMatrix = calculateCovarianceMatrix(recentReturnsData);
+        
+        // Re-optimize weights using ERC based on current market conditions
+        const optimization = optimizeERC(recentCovMatrix, 1000, 1e-6, targetBudgets);
+        newTargetWeights = optimization.weights;
+        
+        console.log(`  ERC rebalancing: new optimal weights calculated`);
       }
       
-      // Calculate new covariance matrix from recent data
-      const recentCovMatrix = calculateCovarianceMatrix(recentReturnsData);
-      
-      // Re-optimize weights using ERC based on current market conditions
-      const optimization = optimizeERC(recentCovMatrix, 1000, 1e-6, targetBudgets);
-      
-      // Update current weights to the newly optimized weights
-      currentWeights = optimization.weights;
-      
-      // REBALANCING PROCESS:
+      // Update current weights to the newly calculated weights
+      currentWeights = newTargetWeights;
       
       // Calculate current weights before rebalancing (for tracking drift)
       const currentWeightsBeforeRebalance = tickers.map((ticker, i) => {
@@ -362,9 +388,37 @@ export function runBacktest(
       const quarterEndValue = portfolioValue;
       const quarterlyReturn = ((quarterEndValue - quarterStartValue) / quarterStartValue) * 100;
       
-      // Apply transaction cost ONCE to total portfolio value (0.1% of portfolio)
-      const totalTransactionCost = portfolioValue * rebalanceConfig.transactionCost;
+      // SMART TRANSACTION COST CALCULATION:
+      // Only pay fees on the ACTUAL TRADES (drift adjustments), not full portfolio
+      // 
+      // Example:
+      // Portfolio value: $10,000
+      // SPY: Currently 28% ($2,800), target 25% ($2,500) → SELL $300
+      // LQD: Currently 22% ($2,200), target 25% ($2,500) → BUY $300
+      // IEF: Currently 25% ($2,500), target 25% ($2,500) → NO TRADE
+      // DBC: Currently 25% ($2,500), target 25% ($2,500) → NO TRADE
+      // 
+      // Total trading volume: $300 + $300 = $600 (not $10,000!)
+      // Transaction cost: 0.1% × $600 = $0.60 (not $10.00!)
+      // 
+      // This is MUCH more realistic and fair!
+      let totalTradingVolume = 0;
+      tickers.forEach((ticker, i) => {
+        const prices = pricesMap.get(ticker)!;
+        const currentValue = shares[i] * prices[t];  // Current position value
+        const targetValue = portfolioValue * currentWeights[i];  // Target position value
+        const tradeAmount = Math.abs(targetValue - currentValue);  // How much to buy/sell
+        totalTradingVolume += tradeAmount;
+      });
+      
+      // Apply transaction cost ONLY to the traded amount
+      const totalTransactionCost = totalTradingVolume * rebalanceConfig.transactionCost;
       const portfolioAfterCosts = portfolioValue - totalTransactionCost;
+      
+      console.log(`  Rebalancing on ${dates[t]}`);
+      console.log(`  Total trading volume: $${totalTradingVolume.toFixed(2)}`);
+      console.log(`  Transaction cost (0.1% of trades): $${totalTransactionCost.toFixed(2)}`);
+      console.log(`  Portfolio after costs: $${portfolioAfterCosts.toFixed(2)}`);
       
       // Rebalance ACTUAL portfolio: buy new shares at NEW OPTIMIZED weights
       tickers.forEach((ticker, i) => {
@@ -374,29 +428,33 @@ export function runBacktest(
       });
       
       // Important: Update the portfolio value for THIS day to reflect transaction costs
-      // The shares have been adjusted, so recalculate the portfolio value
       portfolioValue = portfolioAfterCosts;
       portfolioValues[portfolioValues.length - 1] = portfolioValue;  // Update the most recently added value
       
-      // Also rebalance SHADOW portfolio (when tracking)
-      if (!reinvestDividends && shadowShares.length > 0) {
-        // Shadow portfolio also needs to rebalance at same times
-        let shadowPortfolioValueAtRebalance = 0;
-        tickers.forEach((ticker, i) => {
-          const prices = pricesMap.get(ticker)!;
-          shadowPortfolioValueAtRebalance += shadowShares[i] * prices[t];
-        });
-        
-        // Apply same transaction cost percentage
-        const shadowPortfolioAfterCosts = shadowPortfolioValueAtRebalance - (shadowPortfolioValueAtRebalance * rebalanceConfig.transactionCost);
-        
-        // Rebalance to same NEW optimized weights
-        tickers.forEach((ticker, i) => {
-          const prices = pricesMap.get(ticker)!;
-          const targetValue = shadowPortfolioAfterCosts * currentWeights[i];  // Use NEW weights!
-          shadowShares[i] = targetValue / prices[t];
-        });
-      }
+      // ALWAYS rebalance shadow portfolio at same times (with same costs)
+      let shadowPortfolioValueAtRebalance = 0;
+      tickers.forEach((ticker, i) => {
+        const prices = pricesMap.get(ticker)!;
+        shadowPortfolioValueAtRebalance += shadowShares[i] * prices[t];
+      });
+      
+      // Apply same transaction cost percentage
+      const shadowTotalTradingVolume = tickers.reduce((sum, ticker, i) => {
+        const prices = pricesMap.get(ticker)!;
+        const currentValue = shadowShares[i] * prices[t];
+        const targetValue = shadowPortfolioValueAtRebalance * currentWeights[i];
+        return sum + Math.abs(targetValue - currentValue);
+      }, 0);
+      
+      const shadowTransactionCost = shadowTotalTradingVolume * rebalanceConfig.transactionCost;
+      const shadowPortfolioAfterCosts = shadowPortfolioValueAtRebalance - shadowTransactionCost;
+      
+      // Rebalance shadow to same NEW optimized weights
+      tickers.forEach((ticker, i) => {
+        const prices = pricesMap.get(ticker)!;
+        const targetValue = shadowPortfolioAfterCosts * currentWeights[i];
+        shadowShares[i] = targetValue / prices[t];
+      });
       
       // Record rebalance event
       rebalanceEvents.push({
@@ -405,12 +463,22 @@ export function runBacktest(
         volatility: parseFloat(rollingVol.toFixed(2)),
         sharpe: parseFloat(rollingSharpe.toFixed(2)),
         quarterlyReturn: parseFloat(quarterlyReturn.toFixed(2)),
-        changes: tickers.map((ticker, i) => ({
-          ticker,
-          beforeWeight: parseFloat(currentWeightsBeforeRebalance[i].toFixed(2)),  // Actual drifted weight
-          afterWeight: parseFloat((currentWeights[i] * 100).toFixed(2)),  // NEW optimized target
-          drift: parseFloat((currentWeightsBeforeRebalance[i] - previousTargetWeights[i] * 100).toFixed(2)),  // How far it drifted from last target
-        })),
+        totalTradingVolume: parseFloat(totalTradingVolume.toFixed(2)),
+        transactionCost: parseFloat(totalTransactionCost.toFixed(2)),
+        changes: tickers.map((ticker, i) => {
+          const prices = pricesMap.get(ticker)!;
+          const currentValue = shares[i] * prices[t];
+          const targetValue = portfolioValue * currentWeights[i];
+          const tradeAmount = Math.abs(targetValue - currentValue);
+          
+          return {
+            ticker,
+            beforeWeight: parseFloat(currentWeightsBeforeRebalance[i].toFixed(2)),  // Actual drifted weight
+            afterWeight: parseFloat((currentWeights[i] * 100).toFixed(2)),  // NEW optimized target
+            drift: parseFloat((currentWeightsBeforeRebalance[i] - previousTargetWeights[i] * 100).toFixed(2)),  // How far it drifted from last target
+            tradeAmount: parseFloat(tradeAmount.toFixed(2)),
+          };
+        }),
       });
       
       // Update previous target weights for next rebalance
@@ -483,26 +551,20 @@ export function runBacktest(
   // Max DD = ($11k - $9k) / $11k = 18.2%
   const { maxDD, peakIndex, troughIndex } = calculateDrawdownFromValues(portfolioValues);
   
-  // Calculate dividend metrics
-  const missedOpportunity = !reinvestDividends 
-    ? totalDividendCashIfReinvested - totalDividendCash 
-    : 0;
+  // ALWAYS calculate shadow portfolio final value for comparison
+  let shadowPortfolioValue = 0;
+  tickers.forEach((ticker, i) => {
+    const prices = pricesMap.get(ticker)!;
+    const finalPrice = prices[prices.length - 1];
+    shadowPortfolioValue += shadowShares[i] * finalPrice;
+  });
   
-  // Calculate shadow portfolio final value (if not reinvesting)
-  let shadowPortfolioValue: number | undefined;
-  let shadowTotalReturn: number | undefined;
+  const shadowTotalReturn = ((shadowPortfolioValue - initialValue) / initialValue) * 100;
   
-  if (!reinvestDividends) {
-    // Calculate what the portfolio would be worth if dividends were reinvested
-    shadowPortfolioValue = 0;
-    tickers.forEach((ticker, i) => {
-      const prices = pricesMap.get(ticker)!;
-      const finalPrice = prices[prices.length - 1];
-      shadowPortfolioValue! += shadowShares[i] * finalPrice;
-    });
-    
-    shadowTotalReturn = ((shadowPortfolioValue - initialValue) / initialValue) * 100;
-  }
+  // Calculate opportunity cost
+  const missedOpportunity = reinvestDividends
+    ? (finalValue - shadowPortfolioValue)  // How much better reinvesting was
+    : (shadowPortfolioValue - finalValue); // How much better reinvesting would have been
   
   return {
     portfolioValues,
@@ -513,18 +575,18 @@ export function runBacktest(
     annualizedReturn: annualizedReturn * 100,
     annualizedVolatility: annualizedVolatility * 100,
     sharpeRatio,
-    maxDrawdown: maxDD,
+    maxDrawdown: -Math.abs(maxDD),
     maxDrawdownPeriod: {
       start: dates[peakIndex],
       end: dates[troughIndex],
     },
     rebalanceCount,
     rebalanceDates: rebalanceEvents,
-    dividendCash: totalDividendCash,  // Actual cash received with current strategy
-    dividendCashIfReinvested: !reinvestDividends ? totalDividendCashIfReinvested : undefined,  // What it would be if reinvested
-    missedDividendOpportunity: !reinvestDividends ? missedOpportunity : undefined,  // Lost opportunity
-    shadowPortfolioValue: shadowPortfolioValue,  // What portfolio would be worth with reinvestment
-    shadowTotalReturn: shadowTotalReturn,  // What total return would be with reinvestment
+    dividendCash: totalDividendCash,
+    dividendCashIfReinvested: totalDividendCashIfReinvested,
+    missedDividendOpportunity: missedOpportunity,
+    shadowPortfolioValue: shadowPortfolioValue,
+    shadowTotalReturn: shadowTotalReturn,
   };
 }
 
@@ -759,11 +821,13 @@ export function compareStrategies(
     10000, 
     reinvestDividends,
     targetBudgets,  // Pass custom budgets for dynamic rebalancing
-    lookbackPeriodYears  // Pass user's lookback period
+    lookbackPeriodYears,  // Pass user's lookback period
+    false  // Dynamic ERC rebalancing
   );
   
   // Equal Weight strategy (naive 1/N allocation)
   // Simply divide money equally: 1/N for N assets
+  // Rebalances back to equal weights quarterly (no optimization)
   const equalWeights = Array(tickers.length).fill(1 / tickers.length);
   const equalWeight = runBacktest(
     pricesMap, 
@@ -775,7 +839,8 @@ export function compareStrategies(
     10000, 
     reinvestDividends,
     undefined,  // No custom budgets for equal weight
-    lookbackPeriodYears  // Use same lookback period for fair comparison
+    lookbackPeriodYears,  // Use same lookback period for fair comparison
+    true  // Maintain fixed equal weights (no optimization)
   );
   
   // Could add more strategies here:

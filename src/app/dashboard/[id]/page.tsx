@@ -30,6 +30,7 @@ export default function PortfolioDetail() {
   const [loadingRebalancing, setLoadingRebalancing] = useState(false);
   const [sinceCreationRebalancingData, setSinceCreationRebalancingData] = useState<any[]>([]);
   const [loadingSinceCreation, setLoadingSinceCreation] = useState(false);
+  const [currentRiskContributions, setCurrentRiskContributions] = useState<Record<string, number>>({});
 
   // Load portfolio
   useEffect(() => {
@@ -282,6 +283,39 @@ export default function PortfolioDetail() {
     
     fetchSinceCreationData();
   }, [p?.id]);
+
+  // Calculate current risk contributions based on live market data
+  useEffect(() => {
+    if (!p?.proposalHoldings || !quotes || Object.keys(quotes).length === 0) return;
+    
+    // SIMPLE APPROACH: For day 1, extract risk contributions from the note field
+    // These are saved during portfolio creation and are the TRUE ERC values
+    const riskContribs: Record<string, number> = {};
+    let hasAllRiskContribs = true;
+    
+    p.proposalHoldings.forEach((h: any) => {
+      // Note format: "US Equities • Risk Contribution: 25.00%"
+      const match = h.note?.match(/Risk Contribution:\s*([\d.]+)%/);
+      if (match) {
+        riskContribs[h.symbol] = parseFloat(match[1]);
+      } else {
+        hasAllRiskContribs = false;
+      }
+    });
+    
+    if (hasAllRiskContribs && Object.keys(riskContribs).length > 0) {
+      console.log('✅ Using risk contributions from portfolio note field:', riskContribs);
+      setCurrentRiskContributions(riskContribs);
+    } else {
+      // Fallback: Use target weights as approximation if no saved risk contributions
+      console.log('⚠️ No saved risk contributions found, using weights as approximation');
+      const fallback: Record<string, number> = {};
+      p.proposalHoldings.forEach((h: any) => {
+        fallback[h.symbol] = h.weight;
+      });
+      setCurrentRiskContributions(fallback);
+    }
+  }, [p?.proposalHoldings, quotes, sinceCreationRebalancingData]);
 
   // Early returns AFTER all hooks
   if (!isLoaded) return null;
@@ -1007,6 +1041,9 @@ export default function PortfolioDetail() {
                     
                     const pricesAtRebalance: Record<string, number> = lastRebalanceData?.pricesAtRebalance || {};
                     
+                    // Get risk contributions from last rebalance
+                    const lastRebalanceRiskContrib: Record<string, number> = lastRebalanceData?.riskContributions || {};
+                    
                     // Calculate current metrics for each holding
                     const holdings = targetWeights.map((tw: any) => {
                       const quote = quotes[tw.symbol];
@@ -1039,9 +1076,10 @@ export default function PortfolioDetail() {
                       const currentWeight = totalValue > 0 ? (h.currentValue / totalValue * 100) : h.targetWeight;
                       const drift = currentWeight - h.targetWeight;
                       
-                      // Estimate risk contribution as proportional to current weight
-                      // (Actual risk contribution would require recalculating volatility/correlation)
-                      const riskContribution = currentWeight; // Approximation: weight ≈ risk in ERC portfolios
+                      // Use actual risk contribution from last rebalance if available, otherwise use current weight
+                      const riskContribution = lastRebalanceRiskContrib[h.symbol] !== undefined
+                        ? lastRebalanceRiskContrib[h.symbol]
+                        : currentWeight;
                       
                       return (
                         <tr key={i} className="border-b border-slate-600/20 hover:bg-slate-700/30 transition">
@@ -1063,7 +1101,7 @@ export default function PortfolioDetail() {
                             </span>
                           </td>
                           <td className="py-3 pr-4 text-right text-slate-300">
-                            {riskContribution.toFixed(2)}%
+                            {(currentRiskContributions[h.symbol] || currentWeight).toFixed(2)}%
                           </td>
                         </tr>
                       );
@@ -1079,7 +1117,7 @@ export default function PortfolioDetail() {
                 <strong> Current Weight</strong> = actual weight based on most recent closing prices. 
                 <strong> Drift</strong> = difference from target (rebalancing corrects large drifts). 
                 <strong> Return</strong> = price change since last quarterly rebalance. 
-                <strong> Risk Contrib.</strong> = risk contribution using 5-year rolling volatility window (calculated daily, approximated by current weight between rebalances).
+                <strong> Risk Contrib.</strong> = calculated daily using current weights, rolling volatility ({p.proposalSummary?.lookbackPeriod || '5y'} window), and correlation matrix.
               </p>
             </div>
           </div>

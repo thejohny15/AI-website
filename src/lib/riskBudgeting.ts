@@ -180,27 +180,36 @@ export function optimizeERC(
   let converged = false;
   let iteration = 0;
   
+  // Use a more robust update with step size control
+  const learningRate = 0.5; // Damping factor to prevent overshooting
+  
   for (iteration = 0; iteration < maxIterations && !converged; iteration++) {
     const oldWeights = [...weights];
     
-    // Cyclical coordinate descent
+    // Calculate current risk contributions
+    const wSigma = matrixVectorMultiply(covMatrix, weights);
+    const portfolioVol = calculatePortfolioVolatility(weights, covMatrix);
+    
+    if (portfolioVol === 0) break;
+    
+    // Calculate target risk contributions
+    const targetRCs = targetBudgets 
+      ? targetBudgets.map(b => b * portfolioVol)
+      : Array(n).fill(portfolioVol / n);
+    
+    // Update each weight using improved formula
     for (let i = 0; i < n; i++) {
-      const wSigma = matrixVectorMultiply(covMatrix, weights);
-      const portfolioVol = calculatePortfolioVolatility(weights, covMatrix);
-      
-      if (portfolioVol === 0) continue;
-      
-      // Marginal risk contribution of asset i
+      // Current marginal risk contribution
       const MRC_i = wSigma[i] / portfolioVol;
       
-      // Target risk contribution for asset i
-      const targetRC = targetBudgets 
-        ? targetBudgets[i] * portfolioVol  // Custom budget
-        : portfolioVol / n;                 // Equal risk contribution (default)
+      // Current actual risk contribution
+      const currentRC = weights[i] * MRC_i;
       
-      // Update weight for asset i
+      // Calculate adjustment needed
       if (MRC_i > 0) {
-        weights[i] = targetRC / MRC_i;
+        // New weight = old weight × (target RC / current RC)^learningRate
+        const ratio = targetRCs[i] / currentRC;
+        weights[i] = weights[i] * Math.pow(ratio, learningRate);
       }
     }
     
@@ -208,11 +217,29 @@ export function optimizeERC(
     const sumWeights = weights.reduce((sum, w) => sum + w, 0);
     weights = weights.map(w => w / sumWeights);
     
-    // Check convergence
-    const diff = weights.reduce((sum, w, i) => sum + Math.abs(w - oldWeights[i]), 0);
-    if (diff < tolerance) {
+    // Check convergence based on RISK CONTRIBUTION equality
+    const { percentages } = calculateRiskContributions(weights, covMatrix);
+    const targetPercentages = targetBudgets 
+      ? targetBudgets.map(b => b * 100)  // Custom targets (already in %)
+      : Array(n).fill(100 / n);           // Equal risk (25% for 4 assets)
+    
+    // Calculate max deviation from target
+    const maxRCDeviation = Math.max(...percentages.map((rc, i) => Math.abs(rc - targetPercentages[i])));
+    
+    // Log progress every 100 iterations
+    if (iteration % 100 === 0) {
+      console.log(`Iteration ${iteration}: Max RC deviation = ${maxRCDeviation.toFixed(4)}%`);
+    }
+    
+    // Converge when all risk contributions are within tolerance (in percentage points)
+    if (maxRCDeviation < tolerance) {
+      console.log(`✅ Converged at iteration ${iteration}: Max deviation = ${maxRCDeviation.toFixed(4)}%`);
       converged = true;
     }
+  }
+  
+  if (!converged) {
+    console.warn(`⚠️ Did not converge after ${maxIterations} iterations`);
   }
   
   // Calculate final risk contributions
