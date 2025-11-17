@@ -337,6 +337,16 @@ export async function POST(req: NextRequest) {
     const targetedVol = targetVolatility || portfolioVol;
     const sharpeRatio = calculateSharpeRatio(expectedReturn, targetedVol);
     
+    console.log('📊 Portfolio metrics calculated:', {
+      expectedReturn: expectedReturn.toFixed(2),
+      portfolioVol: (portfolioVol * 100).toFixed(2),
+      targetedVol: (targetedVol * 100).toFixed(2),
+      sharpeRatio: sharpeRatio.toFixed(2),
+      meanReturns: meanReturns.map((r, i) => `${tickers[i]}: ${r.toFixed(2)}%`),
+      dataSource: 'Recent period (2nd half of data)',
+      note: 'These are FORWARD-LOOKING estimates based on recent returns'
+    });
+    
     // Calculate max drawdown for a hypothetical portfolio
     const maxDrawdowns = assetClasses.map((asset: AssetClass) => {
       const prices = alignedPrices.get(asset.ticker)!;
